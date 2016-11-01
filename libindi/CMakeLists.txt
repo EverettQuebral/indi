@@ -26,7 +26,7 @@ endif(NOT WIN32 AND NOT ANDROID)
 
 set(INDI_SOVERSION "1")
 set(CMAKE_INDI_VERSION_MAJOR 1)
-set(CMAKE_INDI_VERSION_MINOR 2)
+set(CMAKE_INDI_VERSION_MINOR 3)
 set(CMAKE_INDI_VERSION_RELEASE 0)
 set(CMAKE_INDI_VERSION_STRING "${CMAKE_INDI_VERSION_MAJOR}.${CMAKE_INDI_VERSION_MINOR}.${CMAKE_INDI_VERSION_RELEASE}")
 
@@ -54,6 +54,7 @@ set(UDEVRULES_INSTALL_DIR "/lib/udev/rules.d" CACHE STRING "Base directory for u
 
 OPTION (INDI_BUILD_UNITTESTS "Build INDI tests" OFF)
 OPTION (INDI_FAST_BLOB "Build INDI with Fast BLOB support" ON)
+OPTION (INDI_CALCULATE_MINMAX "Calculate and store image minimum and maximum values in FITS header" OFF)
 
 #####################################  Dependencies  ##############################################
 # ZLib compression Library
@@ -656,6 +657,16 @@ add_executable(indi_simulator_wheel ${filtersimulator_SRCS})
 target_link_libraries(indi_simulator_wheel indidriver)
 install(TARGETS indi_simulator_wheel RUNTIME DESTINATION bin )
 
+########## Optec Wheel IFW ############
+set(optecwheel_SRCS
+        ${indimain_SRCS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/filter_wheel/ifwoptec.cpp
+   )
+
+add_executable(indi_optec_wheel ${optecwheel_SRCS})
+target_link_libraries(indi_optec_wheel indidriver)
+install(TARGETS indi_optec_wheel RUNTIME DESTINATION bin )
+
 #################################################################################
 
 #####################################
@@ -986,9 +997,17 @@ endif(Qt5Network_FOUND)
 #########################################  Fast Blob  #############################################
 ###################################################################################################
 IF (INDI_FAST_BLOB)
+# Append ENCLEN attribute to outgoing BLOB elements to enable fast parsing by clients
 add_definitions(-DWITH_ENCLEN)
 ENDIF(INDI_FAST_BLOB)
 
+###################################################################################################
+######################################  Calculate Min/Max #########################################
+###################################################################################################
+IF (INDI_CALCULATE_MINMAX)
+# Calculate Min/Max values to store them in FITS header
+add_definitions(-DWITH_MINMAX)
+ENDIF(INDI_CALCULATE_MINMAX)
 ###################################################################################################
 #########################################  Tests  #################################################
 ###################################################################################################
