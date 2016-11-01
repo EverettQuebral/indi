@@ -1345,6 +1345,8 @@ libindi/drivers/focuser/focuslynxbase.h -text
 libindi/drivers/focuser/indi_tcfs_sk.xml -text
 libindi/drivers/focuser/moonlite.cpp -text
 libindi/drivers/focuser/moonlite.h -text
+libindi/drivers/focuser/eqfocuser.h -text
+libindi/dirvers/focuser/eqfocuser.cpp -text
 libindi/drivers/focuser/nfocus.cpp -text
 libindi/drivers/focuser/nfocus.h -text
 libindi/drivers/focuser/nstep.cpp -text

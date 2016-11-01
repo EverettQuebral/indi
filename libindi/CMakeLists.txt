@@ -519,6 +519,16 @@ add_executable(indi_robo_focus ${robofocus_SRCS})
 target_link_libraries(indi_robo_focus indidriver)
 install(TARGETS indi_robo_focus RUNTIME DESTINATION bin )
 
+################ EQ Astronomy Systems #################
+
+set(eqfocuser_SRCS
+	${CMAKE_CURRENT_SOURCE_DIR}/drivers/focuser/eqfocuser.cpp	
+   )
+
+add_executable(indi_eqfocuser ${eqfocuser_SRCS})
+target_link_libraries(indi_eqfocuser indidriver)
+install(TARGETS indi_eqfocuser RUNTIME DESTINATION bin )
+
 
 ################ Rigelsys NFocus Focuser ################
 
