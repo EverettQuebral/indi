@@ -150,7 +150,7 @@ bool EQFOCUSER::command(const char *request, char *response, int count) {
 }
 
 const char * EQFOCUSER::getDefaultName() {
-  return "NStep";
+  return "EQFocuser";
 }
 
 bool EQFOCUSER::Connect() {
@@ -175,7 +175,7 @@ bool EQFOCUSER::Connect() {
     if (rc == TTY_OK) {
       rc = tty_read(PortFD, &b, 1, 5, &actual);
       if (rc == TTY_OK && b == 'S') {
-        IDMessage(getDeviceName(), "NStep is connected on %s.", PortT[0].text);
+        IDMessage(getDeviceName(), "EQFocuser is connected on %s.", PortT[0].text);
         SetTimer(POLLMS);
         return true;
       }
@@ -187,7 +187,7 @@ bool EQFOCUSER::Connect() {
 bool EQFOCUSER::Disconnect() {
   if (!isSimulation()) {
     tty_disconnect(PortFD);
-    IDMessage(getDeviceName(), "NStep is disconnected.");
+    IDMessage(getDeviceName(), "EQFocuser is disconnected.");
     return true;
   }
 }
