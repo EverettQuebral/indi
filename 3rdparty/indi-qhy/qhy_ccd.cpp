@@ -584,8 +584,10 @@ bool QHYCCD::Connect()
         camxbin = 1;
         camybin = 1;
 
-        useSoftBin = false;
+        // Always use INDI software binning
+        useSoftBin = true;
 
+        /*
         ret = IsQHYCCDControlAvailable(camhandle,CAM_BIN1X1MODE);
         if(ret == QHYCCD_SUCCESS)
         {
@@ -602,7 +604,10 @@ bool QHYCCD::Connect()
         // Only use software binning if NOT supported by hardware
         useSoftBin = !(ret == QHYCCD_SUCCESS);
 
-        DEBUGF(INDI::Logger::DBG_DEBUG, "Binning Control: %s", cap & CCD_CAN_BIN ? "True" : "False");        
+        */
+
+        DEBUGF(INDI::Logger::DBG_DEBUG, "Binning Control: %s", cap & CCD_CAN_BIN ? "True" : "False");
+
 
         ret= IsQHYCCDControlAvailable(camhandle, CONTROL_USBTRAFFIC);
         if (ret == QHYCCD_SUCCESS)
@@ -787,7 +792,7 @@ bool QHYCCD::StartExposure(float duration)
       }
   }
 
-  if (sim)
+  if (sim || useSoftBin)
       ret = QHYCCD_SUCCESS;
   else
       ret = SetQHYCCDBinMode(camhandle,camxbin,camybin);
@@ -880,10 +885,21 @@ bool QHYCCD::UpdateCCDFrame(int x, int y, int w, int h)
 
   camroix = x;
   camroiy = y;
-  camroiwidth = w/ PrimaryCCD.getBinX();
-  camroiheight = h/ PrimaryCCD.getBinY();
 
-  DEBUGF(INDI::Logger::DBG_DEBUG, "The Final image area is (%d, %d), (%d, %d)", camroix, camroiy, camroiwidth, camroiheight);
+  if (useSoftBin)
+  {
+      camroiwidth = w;
+      camroiheight = h;
+
+      DEBUGF(INDI::Logger::DBG_DEBUG, "The Final image area is (%d, %d), (%d, %d)", camroix, camroiy, camroiwidth/ PrimaryCCD.getBinX(), camroiheight/ PrimaryCCD.getBinY());
+  }
+  else
+  {
+      camroiwidth = w/ PrimaryCCD.getBinX();
+      camroiheight = h/ PrimaryCCD.getBinY();
+
+      DEBUGF(INDI::Logger::DBG_DEBUG, "The Final image area is (%d, %d), (%d, %d)", camroix, camroiy, camroiwidth, camroiheight);
+  }
 
   // Set UNBINNED coords
   PrimaryCCD.setFrame(x, y, w,  h);
@@ -928,7 +944,7 @@ bool QHYCCD::UpdateCCDBin(int hor, int ver)
     }
     else if(hor == 2 && ver == 2)
     {
-        ret = IsQHYCCDControlAvailable(camhandle,CAM_BIN2X2MODE);  
+        ret = IsQHYCCDControlAvailable(camhandle,CAM_BIN2X2MODE);
     }
     else if(hor == 3 && ver == 3)
     {
@@ -936,19 +952,19 @@ bool QHYCCD::UpdateCCDBin(int hor, int ver)
     }
     else if(hor == 4 && ver == 4)
     {
-        ret = IsQHYCCDControlAvailable(camhandle,CAM_BIN4X4MODE); 
+        ret = IsQHYCCDControlAvailable(camhandle,CAM_BIN4X4MODE);
     }
 
-    if(ret == QHYCCD_SUCCESS)
+    // Binning ALWAYS succeeds
+    if (ret!= QHYCCD_SUCCESS)
     {
-        PrimaryCCD.setBin(hor,ver);
-        camxbin = hor;
-        camybin = ver;
-        return UpdateCCDFrame(PrimaryCCD.getSubX(), PrimaryCCD.getSubY(), PrimaryCCD.getSubW(), PrimaryCCD.getSubH());
+        useSoftBin = true;
     }
 
-    DEBUGF(INDI::Logger::DBG_ERROR, "SetBin mode failed. Invalid bin requested %dx%d",hor,ver);
-    return false;
+    PrimaryCCD.setBin(hor,ver);
+    camxbin = hor;
+    camybin = ver;
+    return UpdateCCDFrame(PrimaryCCD.getSubX(), PrimaryCCD.getSubY(), PrimaryCCD.getSubW(), PrimaryCCD.getSubH());
 }
 
 float QHYCCD::calcTimeLeft()

@@ -297,20 +297,26 @@ void CCDChip::binFrame()
     {
         uint8_t *bin_buf = BinFrame;
         uint8_t val;
+        // Try to average pixels since in 8bit they get saturated pretty quickly
+        double factor = (BinX*BinX)/2;
+        double accumulator=0;
         for (int i=0; i < SubH; i+= BinX)
             for (int j=0; j < SubW; j+= BinX)
             {
+                accumulator=0;
                 for (int k=0; k < BinX; k++)
                 {
                     for (int l=0; l < BinX; l++)
                     {
-                        val = *(RawFrame + j + (i+k) * SubW + l);
-                        if (val + *bin_buf > UINT8_MAX)
-                            *bin_buf = UINT8_MAX;
-                        else
-                            *bin_buf  += val;
+                        accumulator += *(RawFrame + j + (i+k) * SubW + l);
                     }
                 }
+
+                accumulator /= factor;
+                if (accumulator > UINT8_MAX)
+                    *bin_buf = UINT8_MAX;
+                else
+                    *bin_buf  += static_cast<uint8_t>(accumulator);
                 bin_buf++;
             }
     }
