@@ -1,28 +1,53 @@
-language: cpp
 compiler: gcc
 language: cpp
 sudo: required
 dist: trusty
-os: linux
+osx_image: xcode8.1
+
+os: 
+ - linux
+ - osx
+
+matrix:
+  include:
+    - os: linux
+      env: COMPILER_NAME=gcc CXX=g++-5 CC=gcc-5
+      addons:
+        apt:
+          packages:
+            - g++-5
+          sources: &sources
+            - ubuntu-toolchain-r-test
 
 branches:
   only:
-    - develop
     - master
-    - refactor/unittest 
+    - develop
+    - package
+    - /drv_.*$/
+    - travis
+    - refactor/unittest
+    - feature/travisosx
 
 before_install:
     - echo Install dependencies
-    - travis-ci/deps.sh
+    - travis-ci/deps-${TRAVIS_OS_NAME}.sh
 
 install:
-    - echo Building INDI Core
-    - travis-ci/build-core.sh 
+    - echo Building INDI Core and drivers
+    - travis-ci/build-core.sh
+    - travis-ci/build-libs.sh
     - travis-ci/build-3rdparty.sh
     - travis-ci/build-deb-packages.sh
+    - travis-ci/build-core.sh Debug
+    - travis-ci/build-libs.sh Debug
+    - travis-ci/build-3rdparty.sh Debug
+    - travis-ci/build-deb-packages.sh Debug
+    - travis-ci/build-core.sh Release
+    - travis-ci/build-libs.sh Release
+    - travis-ci/build-3rdparty.sh Release
+    - travis-ci/build-deb-packages.sh Release
 
 script:
-    - pwd
-    - cd libindi/test
-    - ctest -V
+    - travis-ci/run-tests.sh 
 

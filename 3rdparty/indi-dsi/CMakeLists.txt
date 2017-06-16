@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 2.4.7)
 PROJECT(indi-dsi CXX C)
 
-set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS}")
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/")
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake_modules/")
 include(GNUInstallDirs)
@@ -25,6 +24,13 @@ include_directories( ${CMAKE_CURRENT_SOURCE_DIR})
 include_directories( ${INDI_INCLUDE_DIR})
 include_directories( ${CFITSIO_INCLUDE_DIR})
 
+IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++11")
+ELSE ()
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+ENDIF ()
+
 ########### DSI ###########
 set(indidsi_SRCS
    ${CMAKE_CURRENT_SOURCE_DIR}/dsi_ccd.cpp
@@ -42,7 +48,7 @@ set(indidsi_SRCS
 
 add_executable(indi_dsi_ccd ${indidsi_SRCS})
 
-target_link_libraries(indi_dsi_ccd ${INDI_DRIVER_LIBRARIES} ${CFITSIO_LIBRARIES} ${LIBUSB_1_LIBRARIES} )
+target_link_libraries(indi_dsi_ccd ${INDI_LIBRARIES} ${CFITSIO_LIBRARIES} ${LIBUSB_1_LIBRARIES} )
 
 install(TARGETS indi_dsi_ccd RUNTIME DESTINATION bin )
 

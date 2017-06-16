@@ -20,21 +20,22 @@
  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
+#include "qhy_ccd.h"
+
+#include "qhy_fw.h"
+
+#include "config.h"
+#ifndef __APPLE__
+#include "stream_recorder.h"
+#endif
+
+#include <algorithm>
+
 #include <memory>
 #include <time.h>
 #include <math.h>
 #include <unistd.h>
 #include <sys/time.h>
-
-
-#ifndef OSX_EMBEDED_MODE
-#include "stream_recorder.h"
-#endif
-
-#include "qhy_ccd.h"
-#include "qhy_fw.h"
-
-#include "config.h"
 
 #define POLLMS                  1000        /* Polling time (ms) */
 #define TEMP_THRESHOLD          0.2         /* Differential temperature threshold (C)*/
@@ -44,13 +45,14 @@
 //NB Disable for real driver
 //#define USE_SIMULATION
 
-static int cameraCount;
+static int cameraCount = 0;
 static QHYCCD *cameras[MAX_DEVICES];
 
 pthread_cond_t      cv  = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t     condMutex     = PTHREAD_MUTEX_INITIALIZER;
 
-static void cleanup()
+namespace {
+static void QhyCCDCleanup()
 {
   for (int i = 0; i < cameraCount; i++)
   {
@@ -60,59 +62,85 @@ static void cleanup()
   //ReleaseQHYCCDResource();
 }
 
+// Scan for the available devices
+std::vector<std::string> GetDevicesIDs()
+{
+  char camid[MAXINDIDEVICE];
+  int ret = QHYCCD_ERROR;
+  int deviceCount = 0;
+  std::vector<std::string> devices;
+
+#if defined(USE_SIMULATION)
+  deviceCount = 2;
+#else
+  deviceCount = ScanQHYCCD();
+#endif
+
+  for (int i = 0; i < deviceCount; i++)
+  {
+    memset(camid,'\0', MAXINDIDEVICE);
+
+#if defined(USE_SIMULATION)
+    ret = QHYCCD_SUCCESS;
+    snprintf(camid, MAXINDIDEVICE, "Model %d", i+1);
+#else
+    ret = GetQHYCCDId(i, camid);
+#endif
+    if  (ret == QHYCCD_SUCCESS)
+    {
+      devices.push_back(std::string(camid));
+    } else {
+      IDLog("#%d GetQHYCCDId error (%d)\n", i, ret);
+    }
+  }
+
+  return devices;
+}
+}
+
 void ISInit()
 {
   static bool isInit = false;
 
-  if (!isInit)
+  if (isInit)
+    return;
+
+  for (int i = 0; i < MAX_DEVICES; ++i)
+    cameras[i] = nullptr;
+
+#if !defined(USE_SIMULATION)
+  int ret = InitQHYCCDResource();
+
+  if (ret != QHYCCD_SUCCESS)
   {
-    
-#ifdef __APPLE__
-      UploadFW();
+    IDLog("Init QHYCCD SDK failed (%d)\n", ret);
+    isInit = true;
+    return;
+  }
 #endif
-      char camid[MAXINDIDEVICE];
-      bool allCameraInit = true;
-      int ret = QHYCCD_ERROR;
 
-      #ifndef USE_SIMULATION
-      ret = InitQHYCCDResource();
-      if(ret != QHYCCD_SUCCESS)
-      {
-          IDLog("Init QHYCCD SDK failed (%d)\n", ret);
-          return;
-      }
-      cameraCount = ScanQHYCCD();
-     #else
-     cameraCount = 2;
-     #endif
+#if defined(OSX_EMBEDED_MODE)
+  char firmwarePath[128];
+  sprintf(firmwarePath, "%s/Contents/Resources", getenv("INDIPREFIX"));
+  OSXInitQHYCCDFirmware(firmwarePath);
+#elif defined(__APPLE__)
+  char firmwarePath[128] = "/usr/local/lib/qhy";
+  if (getenv("QHY_FIRMWARE_DIR") != NULL)
+    strncpy(firmwarePath, getenv("QHY_FIRMWARE_DIR"), 128);
+  OSXInitQHYCCDFirmware(firmwarePath);
+#endif
 
-      for(int i = 0;i < cameraCount;i++)
-      {
-          memset(camid,'\0', MAXINDIDEVICE);
+  std::vector<std::string> devices = GetDevicesIDs();
 
-          #ifndef USE_SIMULATION
-          ret = GetQHYCCDId(i,camid);
-          #else
-          ret = QHYCCD_SUCCESS;
-          snprintf(camid, MAXINDIDEVICE, "Model %d", i+1);
-          #endif
-          if(ret == QHYCCD_SUCCESS)
-          {
-              cameras[i] = new QHYCCD(camid);
-          }
-          else
-          {
-              IDLog("#%d GetQHYCCDId error (%d)\n", i, ret);
-              allCameraInit = false;
-              break;
-          }
-      }
-
-      if(cameraCount > 0 && allCameraInit)
-      {
-          atexit(cleanup);
-          isInit = true;
-      }
+  cameraCount = (int)devices.size();
+  for (unsigned int i = 0; i < cameraCount; i++)
+  {
+    cameras[i] = new QHYCCD(devices[i].c_str());
+  }
+  if (cameraCount > 0)
+  {
+    atexit(QhyCCDCleanup);
+    isInit = true;
   }
 }
 
@@ -212,7 +240,7 @@ QHYCCD::QHYCCD(const char *name)
     HasFilters = false;
     coolerEnabled = false;
 
-    snprintf(this->name, MAXINDINAME, "QHY CCD %s", name);
+    snprintf(this->name, MAXINDINAME, "QHY CCD %.15s", name);
     snprintf(this->camid,MAXINDINAME,"%s",name);
     setDeviceName(this->name);
 
@@ -316,7 +344,6 @@ bool QHYCCD::updateProperties()
 
   if (isConnected())
   {
-
       if (HasCooler())
       {
           defineSwitch(&CoolerSP);
@@ -410,8 +437,10 @@ bool QHYCCD::updateProperties()
           //Define the Filter Slot and name properties
           defineNumber(&FilterSlotNP);
 
-          GetFilterNames(FILTER_TAB);
-          defineText(FilterNameTP);
+          if (FilterNameT == NULL)
+              GetFilterNames(FILTER_TAB);
+          if (FilterNameT)
+              defineText(FilterNameTP);
       }
 
       if (HasUSBTraffic)
@@ -484,7 +513,6 @@ bool QHYCCD::updateProperties()
 
 bool QHYCCD::Connect()
 {
-
     sim = isSimulation();
 
     int ret;
@@ -505,17 +533,35 @@ bool QHYCCD::Connect()
         return true;
     }
 
+    // Query the current CCD cameras. This method makes the driver more robust and
+    // it fixes a crash with the new QHC SDK when the INDI driver reopens the same camera
+    // with OpenQHYCCD() without a ScanQHYCCD() call before.
+    std::vector<std::string> devices = GetDevicesIDs();
+
+    // The CCD device is not available anymore
+    if (std::find(devices.begin(), devices.end(), std::string(camid)) == devices.end())
+    {
+        DEBUGF(INDI::Logger::DBG_ERROR, "Error: Camera %s is not connected", camid);
+        return false;
+    }
     camhandle = OpenQHYCCD(camid);
 
     if(camhandle != NULL)
     {
         DEBUGF(INDI::Logger::DBG_SESSION, "Connected to %s.",camid);
 
-#ifdef OSX_EMBEDED_MODE
+#ifdef __APPLE__
         cap = CCD_CAN_ABORT | CCD_CAN_SUBFRAME;
 #else
         cap = CCD_CAN_ABORT | CCD_CAN_SUBFRAME | CCD_HAS_STREAMING;
 #endif
+
+        // Disable the stream mode before connecting
+        ret = SetQHYCCDStreamMode(camhandle,0);
+        if (ret == QHYCCD_SUCCESS)
+        {
+          DEBUGF(INDI::Logger::DBG_ERROR, "Error: Can't disable stream mode (%d)", ret);
+        }
         ret = InitQHYCCD(camhandle);
         if(ret != QHYCCD_SUCCESS)
         {
@@ -551,6 +597,13 @@ bool QHYCCD::Connect()
         if(ret == QHYCCD_SUCCESS)
         {
             HasUSBSpeed = true;
+
+            // Force a certain speed on initialization of QHY5PII-C:
+            // CONTROL_SPEED = 2 - Fastest, but the camera gets stuck with long exposure times.
+            // CONTROL_SPEED = 1 - This is safe with the current driver.
+            // CONTROL_SPEED = 0 - This is safe, but slower than 1.
+            if (isQHY5PIIC())
+                SetQHYCCDParam(camhandle, CONTROL_SPEED, 1);
         }
 
         DEBUGF(INDI::Logger::DBG_DEBUG, "USB Speed Control: %s", HasUSBSpeed ? "True" : "False");
@@ -613,6 +666,10 @@ bool QHYCCD::Connect()
         if (ret == QHYCCD_SUCCESS)
         {
             HasUSBTraffic = true;
+            // Force the USB traffic value to 30 on initialization of QHY5PII-C otherwise
+            // the camera has poor transfer speed.
+            if (isQHY5PIIC())
+                SetQHYCCDParam(camhandle, CONTROL_USBTRAFFIC, 30);
         }
 
         DEBUGF(INDI::Logger::DBG_DEBUG, "USB Traffic Control: %s", HasUSBTraffic ? "True" : "False");
@@ -622,9 +679,9 @@ bool QHYCCD::Connect()
         if(ret != QHYCCD_ERROR)
         {
              if(ret == BAYER_GB)
-                 IUSaveText(&BayerT[2], "GBGR");
+                 IUSaveText(&BayerT[2], "GBRG");
              else if (ret == BAYER_GR)
-                 IUSaveText(&BayerT[2], "GRGB");
+                 IUSaveText(&BayerT[2], "GRBG");
              else if (ret == BAYER_BG)
                  IUSaveText(&BayerT[2], "BGGR");
              else
@@ -638,7 +695,9 @@ bool QHYCCD::Connect()
 
         SetCCDCapability(cap);
 
-#ifndef OSX_EMBEDED_MODE
+        terminateThread = false;
+
+#ifndef __APPLE__
         pthread_create( &primary_thread, NULL, &streamVideoHelper, this);
 #endif
         return true;
@@ -655,7 +714,7 @@ bool QHYCCD::Disconnect()
   DEBUG(INDI::Logger::DBG_SESSION, "CCD is offline.");
 
   pthread_mutex_lock(&condMutex);
-#ifndef OSX_EMBEDED_MODE
+#ifndef __APPLE__
   streamPredicate=0;
 #endif
   terminateThread=true;
@@ -709,9 +768,9 @@ bool QHYCCD::setupParams()
     nbuf = PrimaryCCD.getXRes() * PrimaryCCD.getYRes() * PrimaryCCD.getBPP() / 8;
     PrimaryCCD.setFrameBufferSize(nbuf);
 
-#ifndef OSX_EMBEDED_MODE
-    streamer->setPixelFormat(V4L2_PIX_FMT_GREY);
-    streamer->setRecorderSize(imagew,imageh);
+#ifndef __APPLE__
+    Streamer->setPixelFormat(V4L2_PIX_FMT_GREY);
+    Streamer->setRecorderSize(imagew,imageh);
 #endif
     return true;
 }
@@ -739,8 +798,8 @@ bool QHYCCD::StartExposure(float duration)
 {
   int ret = QHYCCD_ERROR;
 
-#ifndef OSX_EMBEDED_MODE
-  if (streamer->isBusy())
+#ifndef __APPLE__
+  if (Streamer->isBusy())
   {
       DEBUG(INDI::Logger::DBG_ERROR, "Cannot take exposure while streaming/recording is active.");
       return false;
@@ -792,7 +851,7 @@ bool QHYCCD::StartExposure(float duration)
       }
   }
 
-  if (sim || useSoftBin)
+  if (sim)
       ret = QHYCCD_SUCCESS;
   else
       ret = SetQHYCCDBinMode(camhandle,camxbin,camybin);
@@ -802,7 +861,7 @@ bool QHYCCD::StartExposure(float duration)
       return false;
   }
 
-  DEBUGF(INDI::Logger::DBG_DEBUG, "SetQHYCCDBinMode %dx%d", camxbin, camybin);
+  DEBUGF(INDI::Logger::DBG_DEBUG, "SetQHYCCDBinMode (%dx%d). Software binning (%dx%d)", camxbin, camybin, PrimaryCCD.getBinX(), PrimaryCCD.getBinY());
 
   if (sim)
       ret = QHYCCD_SUCCESS;
@@ -810,7 +869,7 @@ bool QHYCCD::StartExposure(float duration)
      ret = SetQHYCCDResolution(camhandle,camroix,camroiy,camroiwidth,camroiheight);
   if(ret != QHYCCD_SUCCESS)
   {
-      DEBUGF(INDI::Logger::DBG_SESSION, "Set QHYCCD ROI resolution failed (%d)", ret);
+      DEBUGF(INDI::Logger::DBG_SESSION, "Set QHYCCD ROI resolution (%d,%d) (%d,%d) failed (%d)", camroix, camroiy, camroiwidth, camroiheight, ret);
       return false;
   }
 
@@ -885,21 +944,11 @@ bool QHYCCD::UpdateCCDFrame(int x, int y, int w, int h)
 
   camroix = x;
   camroiy = y;
+  camroiwidth = w;
+  camroiheight = h;
 
-  if (useSoftBin)
-  {
-      camroiwidth = w;
-      camroiheight = h;
-
-      DEBUGF(INDI::Logger::DBG_DEBUG, "The Final image area is (%d, %d), (%d, %d)", camroix, camroiy, camroiwidth/ PrimaryCCD.getBinX(), camroiheight/ PrimaryCCD.getBinY());
-  }
-  else
-  {
-      camroiwidth = w/ PrimaryCCD.getBinX();
-      camroiheight = h/ PrimaryCCD.getBinY();
-
-      DEBUGF(INDI::Logger::DBG_DEBUG, "The Final image area is (%d, %d), (%d, %d)", camroix, camroiy, camroiwidth, camroiheight);
-  }
+  DEBUGF(INDI::Logger::DBG_DEBUG, "Final binned (%dx%d) image area is (%d, %d), (%d, %d)", PrimaryCCD.getBinX(), PrimaryCCD.getBinY(), camroix/PrimaryCCD.getBinX(), camroiy/PrimaryCCD.getBinY(),
+         camroiwidth/PrimaryCCD.getBinX(), camroiheight/PrimaryCCD.getBinY());
 
   // Set UNBINNED coords
   PrimaryCCD.setFrame(x, y, w,  h);
@@ -907,8 +956,8 @@ bool QHYCCD::UpdateCCDFrame(int x, int y, int w, int h)
   nbuf=(camroiwidth * camroiheight * PrimaryCCD.getBPP()/8);                 //  this is pixel count  
   PrimaryCCD.setFrameBufferSize(nbuf);
 
-#ifndef OSX_EMBEDED_MODE
-  streamer->setRecorderSize(camroiwidth, camroiheight);
+#ifndef __APPLE__
+  Streamer->setRecorderSize(camroiwidth, camroiheight);
 #endif
   return true;
 }
@@ -961,9 +1010,12 @@ bool QHYCCD::UpdateCCDBin(int hor, int ver)
         useSoftBin = true;
     }
 
+    // We always use software binning so QHY binning is always at 1x1
+    camxbin = 1;
+    camybin = 1;
+
     PrimaryCCD.setBin(hor,ver);
-    camxbin = hor;
-    camybin = ver;
+
     return UpdateCCDFrame(PrimaryCCD.getSubX(), PrimaryCCD.getSubY(), PrimaryCCD.getSubW(), PrimaryCCD.getSubH());
 }
 
@@ -999,10 +1051,16 @@ int QHYCCD::grabImage()
 
     uint32_t ret, w,h,bpp,channels;
 
+    DEBUG(INDI::Logger::DBG_DEBUG, "Blocking read call.");
     ret = GetQHYCCDSingleFrame(camhandle,&w,&h,&bpp,&channels,PrimaryCCD.getFrameBuffer());
+    DEBUG(INDI::Logger::DBG_DEBUG, "Blocking read call finished.");
 
     if (ret != QHYCCD_SUCCESS)
+    {
         DEBUGF(INDI::Logger::DBG_ERROR, "GetQHYCCDSingleFrame error (%d)", ret);
+        PrimaryCCD.setExposureFailed();
+        return -1;
+    }
   }
 
   // Perform software binning if necessary
@@ -1106,7 +1164,7 @@ bool QHYCCD::SelectFilter(int position)
     {
         // JM: THIS WILL CRASH! I am using another method with same result!
         //sprintf(&targetpos,"%d",position - 1);
-        targetpos = '0' + position;
+        targetpos = '0' + (position - 1);
         ret = SendOrder2QHYCCDCFW(camhandle,&targetpos,1);
     }
 
@@ -1314,6 +1372,11 @@ void QHYCCD::setCooler(bool enable)
     }
 }
 
+bool QHYCCD::isQHY5PIIC()
+{
+  return std::string(camid, 9) == "QHY5PII-C";
+}
+
 void QHYCCD::updateTemperatureHelper(void *p)
 {
     if (static_cast<QHYCCD*>(p)->isConnected())
@@ -1408,7 +1471,7 @@ bool QHYCCD::saveConfigItems(FILE *fp)
     return true;
 }
 
-#ifndef OSX_EMBEDED_MODE
+#ifndef __APPLE__
 bool QHYCCD::StartStreaming()
 {
     if (PrimaryCCD.getBPP() != 8)
@@ -1419,13 +1482,23 @@ bool QHYCCD::StartStreaming()
 
     DEBUGF(INDI::Logger::DBG_SESSION, "Starting streaming with a period of %g seconds.", PrimaryCCD.getExposureDuration());
 
+    // N.B. There is no corresponding value for GBGR. It is odd that QHY selects this as the default as no one seems to process it
+    const std::map<const char *, uint32_t> formats = { { "GBGR", V4L2_PIX_FMT_GREY} , {"GRGB", V4L2_PIX_FMT_SGRBG8}, { "BGGR", V4L2_PIX_FMT_SBGGR8},
+                                                       {"RGGB", V4L2_PIX_FMT_SRGGB8} };
+
+
+    uint32_t qhyFormat = V4L2_PIX_FMT_GREY;
+    if (BayerT[2].text && formats.count(BayerT[2].text) != 0)
+        qhyFormat = formats.at(BayerT[2].text);
+
+    Streamer->setPixelFormat(qhyFormat);
+
     SetQHYCCDStreamMode(camhandle, 0x01);
     BeginQHYCCDLive(camhandle);
     pthread_mutex_lock(&condMutex);
     streamPredicate = 1;
     pthread_mutex_unlock(&condMutex);
     pthread_cond_signal(&cv);
-
 
     return true;
 }
@@ -1452,11 +1525,11 @@ void * QHYCCD::streamVideoHelper(void* context)
 void* QHYCCD::streamVideo()
 {
   uint32_t ret=0, w,h,bpp,channels;
-  pthread_mutex_lock(&condMutex);
-  //unsigned char *compressedFrame = (unsigned char *) malloc(1);
 
   while (true)
   {
+      pthread_mutex_lock(&condMutex);
+
       while (streamPredicate == 0)
           pthread_cond_wait(&cv, &condMutex);
 
@@ -1467,18 +1540,7 @@ void* QHYCCD::streamVideo()
       pthread_mutex_unlock(&condMutex);
 
       if ( (ret = GetQHYCCDLiveFrame(camhandle, &w, &h, &bpp, &channels, PrimaryCCD.getFrameBuffer())) == QHYCCD_SUCCESS)
-          streamer->newFrame(PrimaryCCD.getFrameBuffer());
-      /*else
-      {
-          DEBUGF(INDI::Logger::DBG_ERROR, "Error reading video data (%d)", ret);
-          streamPredicate=0;
-          streamer->setStream(false);
-          continue;
-      }*/
-
-
-
-      //usleep(PrimaryCCD.getExposureDuration()*1000000);
+          Streamer->newFrame();
   }
 
   pthread_mutex_unlock(&condMutex);

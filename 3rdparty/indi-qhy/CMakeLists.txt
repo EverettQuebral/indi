@@ -24,6 +24,13 @@ include_directories( ${INDI_INCLUDE_DIR})
 include_directories( ${CFITSIO_INCLUDE_DIR})
 include_directories( ${QHY_INCLUDE_DIR})
 
+IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++11")
+ELSE ()
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+ENDIF ()
+
 ########### QHY CCD ###########
 
 if(APPLE)
@@ -39,7 +46,7 @@ endif(APPLE)
 
 add_executable(indi_qhy_ccd ${indiqhy_SRCS})
 
-target_link_libraries(indi_qhy_ccd ${INDI_DRIVER_LIBRARIES} ${CFITSIO_LIBRARIES} ${QHY_LIBRARIES} ${LIBUSB_1_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(indi_qhy_ccd ${INDI_LIBRARIES} ${CFITSIO_LIBRARIES} ${QHY_LIBRARIES} ${LIBUSB_1_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
 if (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "arm*")
 target_link_libraries(indi_qhy_ccd rt)

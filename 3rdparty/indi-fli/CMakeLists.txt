@@ -5,7 +5,7 @@ LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/")
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake_modules/")
 include(GNUInstallDirs)
 
-set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS}")
+set (UDEVRULES_INSTALL_DIR "/lib/udev/rules.d" CACHE STRING "Base directory for udev rules")
 
 find_package(CFITSIO REQUIRED)
 find_package(INDI REQUIRED)
@@ -24,6 +24,13 @@ include_directories( ${INDI_INCLUDE_DIR})
 include_directories( ${CFITSIO_INCLUDE_DIR})
 include_directories( ${FLI_INCLUDE_DIR})
 
+IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++11")
+ELSE ()
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+ENDIF ()
+
 ###### FLI Precision Digital Focuser ######
 set(flipdf_SRCS
         ${CMAKE_CURRENT_SOURCE_DIR}/fli_pdf.cpp
@@ -31,7 +38,7 @@ set(flipdf_SRCS
 
 add_executable(indi_fli_focus ${flipdf_SRCS})
 
-target_link_libraries(indi_fli_focus ${INDI_DRIVER_LIBRARIES} ${FLI_LIBRARIES} ${M_LIB} ${ZLIB_LIBRARY})
+target_link_libraries(indi_fli_focus ${INDI_LIBRARIES} ${FLI_LIBRARIES} ${M_LIB} ${ZLIB_LIBRARY})
 
 install(TARGETS indi_fli_focus RUNTIME DESTINATION bin )
 
@@ -42,7 +49,7 @@ set(flicfw_SRCS
 
 add_executable(indi_fli_wheel ${flicfw_SRCS})
 
-target_link_libraries(indi_fli_wheel ${INDI_DRIVER_LIBRARIES} ${FLI_LIBRARIES} ${M_LIB} ${ZLIB_LIBRARY})
+target_link_libraries(indi_fli_wheel ${INDI_LIBRARIES} ${FLI_LIBRARIES} ${M_LIB} ${ZLIB_LIBRARY})
 
 install(TARGETS indi_fli_wheel RUNTIME DESTINATION bin )
 ############# FLI CCD ###############
@@ -52,8 +59,13 @@ set(fliccd_SRCS
 
 add_executable(indi_fli_ccd ${fliccd_SRCS})
 
-target_link_libraries(indi_fli_ccd ${INDI_DRIVER_LIBRARIES} ${FLI_LIBRARIES} ${CFITSIO_LIBRARIES} ${M_LIB} ${ZLIB_LIBRARY})
+target_link_libraries(indi_fli_ccd ${INDI_LIBRARIES} ${FLI_LIBRARIES} ${CFITSIO_LIBRARIES} ${M_LIB} ${ZLIB_LIBRARY})
 
 install(TARGETS indi_fli_ccd RUNTIME DESTINATION bin)
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/indi_fli.xml DESTINATION ${INDI_DATA_DIR})
+
+if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/99-fli.rules DESTINATION ${UDEVRULES_INSTALL_DIR})
+endif()
+

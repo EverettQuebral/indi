@@ -20,6 +20,13 @@ include_directories( ${CFITSIO_INCLUDE_DIR})
 include_directories( ${GLIB2_INCLUDE_DIRS})
 include_directories( ${Arv_INCLUDE_DIRS})
 
+IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++11")
+ELSE ()
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+ENDIF ()
+
 ############# GENERIC CCD ###############
 if (CFITSIO_FOUND)
 
@@ -32,8 +39,8 @@ if (CFITSIO_FOUND)
 
 add_executable(indi_gige_ccd ${GIGE_SRCS})
 
-#target_link_libraries(indi_gige_ccd ${INDI_DRIVER_LIBRARIES} ${CFITSIO_LIBRARIES} m ${ZLIB_LIBRARY} ${GLIB2_LIBRARY} ${ARV_LIBRARY})
-target_link_libraries(indi_gige_ccd ${INDI_DRIVER_LIBRARIES} ${GLIB2_LIBRARIES} ${Arv_LIBRARIES} ${CFITSIO_LIBRARIES} m gobject-2.0 ${ZLIB_LIBRARY})
+#target_link_libraries(indi_gige_ccd ${INDI_LIBRARIES} ${CFITSIO_LIBRARIES} m ${ZLIB_LIBRARY} ${GLIB2_LIBRARY} ${ARV_LIBRARY})
+target_link_libraries(indi_gige_ccd ${INDI_LIBRARIES} ${GLIB2_LIBRARIES} ${Arv_LIBRARIES} ${CFITSIO_LIBRARIES} m gobject-2.0 ${ZLIB_LIBRARY})
 
 install(TARGETS indi_gige_ccd RUNTIME DESTINATION bin)
 

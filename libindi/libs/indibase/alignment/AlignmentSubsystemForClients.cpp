@@ -8,17 +8,15 @@
 
 #include "AlignmentSubsystemForClients.h"
 
-#include <cstring>
-
-namespace INDI {
-namespace AlignmentSubsystem {
-
-void AlignmentSubsystemForClients::Initialise(const char * DeviceName, INDI::BaseClient * BaseClient)
+namespace INDI
+{
+namespace AlignmentSubsystem
+{
+void AlignmentSubsystemForClients::Initialise(const char *DeviceName, INDI::BaseClient *BaseClient)
 {
     AlignmentSubsystemForClients::DeviceName = DeviceName;
     ClientAPIForAlignmentDatabase::Initialise(BaseClient);
     ClientAPIForMathPluginManagement::Initialise(BaseClient);
-
 }
 
 void AlignmentSubsystemForClients::ProcessNewBLOB(IBLOB *BLOBPointer)

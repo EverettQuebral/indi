@@ -25,7 +25,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 
-#ifndef OSX_EMBEDED_MODE
+#if !defined(__APPLE__) && !defined(__CYGWIN__)
 #include <stream_recorder.h>
 #endif
 
@@ -246,10 +246,9 @@ bool ASICCD::initProperties()
           break;
   }
 
-  PrimaryCCD.setResolution(m_camInfo->MaxWidth, m_camInfo->MaxHeight);
   PrimaryCCD.setMinMaxStep("CCD_EXPOSURE", "CCD_EXPOSURE_VALUE", 0, 3600, 1, false);
   PrimaryCCD.setMinMaxStep("CCD_BINNING", "HOR_BIN", 1, maxBin, 1, false);
-  PrimaryCCD.setMinMaxStep("CCD_BINNING", "VER_BIN", 1, maxBin, 1, false);    
+  PrimaryCCD.setMinMaxStep("CCD_BINNING", "VER_BIN", 1, maxBin, 1, false);
 
   uint32_t cap =0;
 
@@ -271,7 +270,7 @@ bool ASICCD::initProperties()
   if (m_camInfo->IsColorCam)
       cap |= CCD_HAS_BAYER;
 
-  #ifndef OSX_EMBEDED_MODE
+  #if !defined(__APPLE__) && !defined(__CYGWIN__)
   cap |= CCD_HAS_STREAMING;
   #endif
 
@@ -292,7 +291,7 @@ bool ASICCD::updateProperties()
   INDI::CCD::updateProperties();
 
   if (isConnected())
-  {    
+  {
     if (HasCooler())
     {
         defineNumber(&CoolerNP);
@@ -309,13 +308,22 @@ bool ASICCD::updateProperties()
     setupParams();
 
     if (ControlNP.nnp > 0)
-     defineNumber(&ControlNP);
+    {
+        defineNumber(&ControlNP);
+        loadConfig(true, "CCD_CONTROLS");
+    }
 
     if (ControlSP.nsp > 0)
+    {
         defineSwitch(&ControlSP);
+        loadConfig(true, "CCD_CONTROLS_MODE");
+    }
 
     if (VideoFormatSP.nsp > 0)
+    {
         defineSwitch(&VideoFormatSP);
+        loadConfig(true, "CCD_VIDEO_FORMAT");
+    }
 
     SetTimer(POLLMS);
   } else
@@ -371,10 +379,14 @@ bool ASICCD::Connect()
 
   TemperatureUpdateCounter = 0;
 
-#ifndef OSX_EMBEDED_MODE
+#if !defined(__APPLE__) && !defined(__CYGWIN__)
   pthread_create( &primary_thread, NULL, &streamVideoHelper, this);
 #endif
-  
+  DEBUG(INDI::Logger::DBG_SESSION,  "Setting intital bandwidth to AUTO on connection.");
+  if ( (errCode = ASISetControlValue(m_camInfo->CameraID, ASI_BANDWIDTHOVERLOAD, 40, ASI_FALSE)) != ASI_SUCCESS)
+  {
+      DEBUGF(INDI::Logger::DBG_ERROR, "Failed to set initial bandwidth: error (%d)", errCode);
+  }
   /* Success! */
   DEBUG(INDI::Logger::DBG_SESSION,  "CCD is online. Retrieving basic data.");
 
@@ -417,7 +429,7 @@ bool ASICCD::setupParams()
 
       createControls(piNumberOfControls);
   }
-  
+
   // Set minimum ASI_BANDWIDTHOVERLOAD on ARM
   #ifdef LOW_USB_BANDWIDTH
   ASI_CONTROL_CAPS pCtrlCaps;
@@ -501,7 +513,7 @@ bool ASICCD::setupParams()
   VideoFormatSP.nsp = nVideoFormats;
   VideoFormatSP.sp  = VideoFormatS;
 
-  float x_pixel_size, y_pixel_size; 
+  float x_pixel_size, y_pixel_size;
   int x_1, y_1, x_2, y_2;
 
   x_pixel_size = m_camInfo->PixelSize;
@@ -538,9 +550,9 @@ bool ASICCD::setupParams()
   DEBUGF(INDI::Logger::DBG_DEBUG, "setupParams ASISetROIFormat (%dx%d,  bin %d, type %d)", m_camInfo->MaxWidth, m_camInfo->MaxHeight, 1, imgType);
   ASISetROIFormat(m_camInfo->CameraID, m_camInfo->MaxWidth, m_camInfo->MaxHeight, 1, imgType);
 
-  #ifndef OSX_EMBEDED_MODE
+  #if !defined(__APPLE__) && !defined(__CYGWIN__)
   updateRecorderFormat();
-  streamer->setRecorderSize(w,h);
+  Streamer->setRecorderSize(w,h);
   #endif
 
   return true;
@@ -559,7 +571,12 @@ bool ASICCD::ISNewNumber (const char *dev, const char *name, double values[], ch
             for (int i=0; i < ControlNP.nnp; i++)
                 oldValues[i] = ControlN[i].value;
 
-            IUUpdateNumber(&ControlNP, values, names, n);
+            if (IUUpdateNumber(&ControlNP, values, names, n) < 0)
+            {
+                ControlNP.s = IPS_ALERT;
+                IDSetNumber(&ControlNP, NULL);
+                return true;
+            }
 
             for (int i=0; i < ControlNP.nnp; i++)
             {
@@ -617,7 +634,12 @@ bool ASICCD::ISNewSwitch (const char *dev, const char *name, ISState *states, ch
     {
         if (!strcmp(name, ControlSP.name))
         {
-           IUUpdateSwitch(&ControlSP, states, names, n);
+           if (IUUpdateSwitch(&ControlSP, states, names, n) < 0)
+           {
+               ControlSP.s = IPS_ALERT;
+               IDSetSwitch(&ControlSP, NULL);
+               return true;
+           }
 
            for (int i=0; i < ControlSP.nsp; i++)
            {
@@ -672,8 +694,8 @@ bool ASICCD::ISNewSwitch (const char *dev, const char *name, ISState *states, ch
 
         if (!strcmp(name, VideoFormatSP.name))
         {
-            #ifndef OSX_EMBEDED_MODE
-            if (streamer->isBusy())
+            #if !defined(__APPLE__) && !defined(__CYGWIN__)
+            if (Streamer->isBusy())
             {
                 VideoFormatSP.s = IPS_ALERT;
                 DEBUG(INDI::Logger::DBG_ERROR, "Cannot change format while streaming/recording.");
@@ -684,12 +706,13 @@ bool ASICCD::ISNewSwitch (const char *dev, const char *name, ISState *states, ch
 
             IUUpdateSwitch(&VideoFormatSP, states, names, n);
 
-            ASI_IMG_TYPE type = getImageType();            
+            ASI_IMG_TYPE type = getImageType();
 
             switch (type)
             {
                 case ASI_IMG_RAW16:
                     PrimaryCCD.setBPP(16);
+                    DEBUG(INDI::Logger::DBG_WARNING, "Warning: 16bit RAW is not supported on all hardware platforms.");
                     break;
 
                 default:
@@ -711,12 +734,12 @@ bool ASICCD::ISNewSwitch (const char *dev, const char *name, ISState *states, ch
    return INDI::CCD::ISNewSwitch(dev,name,states,names,n);
 }
 
-#ifndef OSX_EMBEDED_MODE
+#if !defined(__APPLE__) && !defined(__CYGWIN__)
 bool ASICCD::StartStreaming()
 {
     ASI_IMG_TYPE type = getImageType();
 
-    if (type != ASI_IMG_Y8)
+    if (type != ASI_IMG_Y8 && type != ASI_IMG_RGB24)
     {
         IUResetSwitch(&VideoFormatSP);
         ISwitch *vf = IUFindSwitch(&VideoFormatSP,"ASI_IMG_Y8");
@@ -749,7 +772,7 @@ bool ASICCD::StartStreaming()
 }
 #endif
 
-#ifndef OSX_EMBEDED_MODE
+#if !defined(__APPLE__) && !defined(__CYGWIN__)
 bool ASICCD::StopStreaming()
 {
     pthread_mutex_lock(&condMutex);
@@ -848,18 +871,23 @@ bool ASICCD::AbortExposure()
 
 bool ASICCD::UpdateCCDFrame(int x, int y, int w, int h)
 {
-  w = (w >> (PrimaryCCD.getBinX()+1)) << (PrimaryCCD.getBinX()+1);
-  h = (h >> PrimaryCCD.getBinX()) << PrimaryCCD.getBinX();
-  
+
+  long bin_width = w / PrimaryCCD.getBinX();
+  long bin_height = h / PrimaryCCD.getBinY();
+
+  bin_width = bin_width - (bin_width % 8);
+  bin_height = bin_height - (bin_height % 2);
+
+  w = bin_width * PrimaryCCD.getBinX();
+  h = bin_height * PrimaryCCD.getBinY();
+
   ASI_ERROR_CODE errCode = ASI_SUCCESS;
 
   /* Add the X and Y offsets */
   long x_1 = x / PrimaryCCD.getBinX();
   long y_1 = y / PrimaryCCD.getBinY();
 
-  long bin_width = w / PrimaryCCD.getBinX();
-  long bin_height = h / PrimaryCCD.getBinY();
-
+  
   if (bin_width > PrimaryCCD.getXRes() / PrimaryCCD.getBinX())
   {
     DEBUGF(INDI::Logger::DBG_SESSION,  "Error: invalid width requested %d", w);
@@ -869,7 +897,7 @@ bool ASICCD::UpdateCCDFrame(int x, int y, int w, int h)
     DEBUGF(INDI::Logger::DBG_SESSION,  "Error: invalid height request %d", h);
     return false;
   }
-	
+
   DEBUGF(INDI::Logger::DBG_DEBUG, "UpdateCCDFrame ASISetROIFormat (%dx%d,  bin %d, type %d)", bin_width, bin_height, PrimaryCCD.getBinX(), getImageType());
   if ( (errCode = ASISetROIFormat(m_camInfo->CameraID, bin_width, bin_height, PrimaryCCD.getBinX(), getImageType())) != ASI_SUCCESS)
   {
@@ -881,10 +909,10 @@ bool ASICCD::UpdateCCDFrame(int x, int y, int w, int h)
   {
       DEBUGF(INDI::Logger::DBG_ERROR, "ASISetStartPos (%d,%d) error (%d)", x_1, y_1, errCode);
       return false;
-  } 
+  }
 
-  #ifndef OSX_EMBEDED_MODE
-  streamer->setRecorderSize(bin_width, bin_height);
+  #if !defined(__APPLE__) && !defined(__CYGWIN__)
+  Streamer->setRecorderSize(bin_width, bin_height);
   #endif
 
   // Set UNBINNED coords
@@ -1007,207 +1035,194 @@ int ASICCD::grabImage()
 
 void ASICCD::TimerHit()
 {
-  float timeleft;
+    float timeleft;
+    int exposureStatusTimeout=0;
 
-  if (isConnected() == false)
-    return;  //  No need to reset timer if we are not connected anymore
+    if (isConnected() == false)
+        return;  //  No need to reset timer if we are not connected anymore
 
-  if (InExposure)
-  {
-    timeleft = calcTimeLeft(ExposureRequest, &ExpStart);
-
-    if (timeleft < 0.05)
+    if (InExposure)
     {
-      //  it's real close now, so spin on it
-      //int timeoutCounter=0;
+        timeleft = calcTimeLeft(ExposureRequest, &ExpStart);
 
-      while (true)
-      {
-              ASI_EXPOSURE_STATUS status = ASI_EXP_IDLE;
-              ASI_ERROR_CODE errCode = ASI_SUCCESS;
+        if (timeleft < 0.05)
+        {
+            while (true)
+            {
+                ASI_EXPOSURE_STATUS status = ASI_EXP_IDLE;
+                ASI_ERROR_CODE errCode = ASI_SUCCESS;
 
-              /*timeoutCounter++;
+                if ( (errCode = ASIGetExpStatus(m_camInfo->CameraID, &status)) != ASI_SUCCESS)
+                {
+                    DEBUGF(INDI::Logger::DBG_DEBUG, "ASIGetExpStatus error (%d)", errCode);
 
-              // Timeout after roughly 2.5 seconds
-              if (timeoutCounter > 50)
-              {
-                  DEBUGF(INDI::Logger::DBG_ERROR, "ASIGetExpStatus timeout out (%d)", errCode);
-                  PrimaryCCD.setExposureFailed();
-                  InExposure = false;
-                  SetTimer(POLLMS);
-                  return;
-              }*/
+                    // Maximum 10 times to try this
+                    if (++exposureStatusTimeout >= 10)
+                    {
+                        DEBUGF(INDI::Logger::DBG_ERROR, "Exposure status timed out (%d)", errCode);
+                        PrimaryCCD.setExposureFailed();
+                        InExposure = false;
+                        exposureRetries=0;
+                        SetTimer(POLLMS);
+                        return;
+                    }
 
-              if ( (errCode = ASIGetExpStatus(m_camInfo->CameraID, &status)) != ASI_SUCCESS)
-              {
-                  DEBUGF(INDI::Logger::DBG_DEBUG, "ASIGetExpStatus error (%d)", errCode);
-                  /*if (++exposureRetries >= MAX_EXP_RETRIES)
-                  {
-                      DEBUGF(INDI::Logger::DBG_SESSION, "Exposure failed (%d)", errCode);
-                      PrimaryCCD.setExposureFailed();
-                      InExposure = false;
-                      SetTimer(POLLMS);
-                      return;
-                  }
-                  else
-                  {
-                      InExposure = false;
-                      StartExposure(ExposureRequest);
-                      SetTimer(POLLMS);
-                      return;
-                  }*/
-
-                  usleep(50000);
-                  continue;
-              }
-              else
-              {
-                  if (status == ASI_EXP_SUCCESS)
-                      break;
-                  else if (status == ASI_EXP_FAILED)
-                  {
-                      /*DEBUGF(INDI::Logger::DBG_ERROR, "ASIGetExpStatus failed (%d)", errCode);
-                      PrimaryCCD.setExposureFailed();
-                      InExposure = false;
-                      SetTimer(POLLMS);
-                      return;*/
-
-                      DEBUGF(INDI::Logger::DBG_DEBUG, "ASIGetExpStatus failed (%d). Restarting exposure...", errCode);
-                      InExposure = false;
-                      usleep(100000);
-                      StartExposure(ExposureRequest);
-                      SetTimer(POLLMS);
-                      return;
-
-                  }
-                  else
                     usleep(50000);
-              }
-          }
+                    continue;
+                }
+                else
+                {
+                    exposureStatusTimeout=0;
 
-          exposureRetries=0;
+                    if (status == ASI_EXP_SUCCESS)
+                        break;
+                    else if (status == ASI_EXP_FAILED)
+                    {
+                        if (++exposureRetries >= MAX_EXP_RETRIES)
+                        {
+                            DEBUGF(INDI::Logger::DBG_ERROR, "Exposure failed after %d attempts.", exposureRetries);
+                            PrimaryCCD.setExposureFailed();
+                            exposureRetries=0;
+                            InExposure = false;
+                            SetTimer(POLLMS);
+                            return;
+                        }
 
-          /* We're done exposing */
-          if (ExposureRequest > VERBOSE_EXPOSURE)
-            DEBUG(INDI::Logger::DBG_SESSION,  "Exposure done, downloading image...");
+                        DEBUGF(INDI::Logger::DBG_DEBUG, "ASIGetExpStatus failed (%d). Restarting exposure...", errCode);
+                        InExposure = false;
+                        usleep(100000);
+                        StartExposure(ExposureRequest);
+                        SetTimer(POLLMS);
+                        return;
+                    }
+                    else
+                        usleep(10000);
+                }
+            }
 
-          PrimaryCCD.setExposureLeft(0);
-          InExposure = false;
-          /* grab and save image */
-          grabImage();
+            exposureRetries=0;
+
+            /* We're done exposing */
+            if (ExposureRequest > VERBOSE_EXPOSURE)
+                DEBUG(INDI::Logger::DBG_SESSION,  "Exposure done, downloading image...");
+
+            PrimaryCCD.setExposureLeft(0);
+            InExposure = false;
+            /* grab and save image */
+            grabImage();
+        }
+        else
+        {
+            //DEBUGF(INDI::Logger::DBG_DEBUG, "With time left %ld", timeleft);
+            PrimaryCCD.setExposureLeft(timeleft);
+        }
     }
-    else
+
+    if (/*HasCooler() && */TemperatureUpdateCounter++ > TEMPERATURE_UPDATE_FREQ)
     {
-      //DEBUGF(INDI::Logger::DBG_DEBUG, "With time left %ld", timeleft);
-      PrimaryCCD.setExposureLeft(timeleft);
-    }
-  }
+        TemperatureUpdateCounter = 0;
 
-  if (/*HasCooler() && */TemperatureUpdateCounter++ > TEMPERATURE_UPDATE_FREQ)
-  {
-      TemperatureUpdateCounter = 0;
+        long ASIControlValue=0;
+        ASI_BOOL ASIControlAuto;
+        double currentTemperature=TemperatureN[0].value;
 
-      long ASIControlValue=0;
-      ASI_BOOL ASIControlAuto;
-      double currentTemperature=TemperatureN[0].value;
+        ASI_ERROR_CODE errCode = ASIGetControlValue(m_camInfo->CameraID, ASI_TEMPERATURE, &ASIControlValue, &ASIControlAuto);
+        if (errCode != ASI_SUCCESS)
+        {
+            DEBUGF(INDI::Logger::DBG_ERROR, "ASIGetControlValue ASI_TEMPERATURE error (%d)", errCode);
+            TemperatureNP.s = IPS_ALERT;
+        }
+        else
+        {
+            TemperatureN[0].value = ASIControlValue / 10.0;
+        }
 
-      ASI_ERROR_CODE errCode = ASIGetControlValue(m_camInfo->CameraID, ASI_TEMPERATURE, &ASIControlValue, &ASIControlAuto);
-      if (errCode != ASI_SUCCESS)
-      {
-          DEBUGF(INDI::Logger::DBG_ERROR, "ASIGetControlValue ASI_TEMPERATURE error (%d)", errCode);
-          TemperatureNP.s = IPS_ALERT;
-      }
-      else
-      {
-          TemperatureN[0].value = ASIControlValue / 10.0;
-      }
+        switch (TemperatureNP.s)
+        {
+        case IPS_IDLE:
+        case IPS_OK:
+            if (fabs(currentTemperature - TemperatureN[0].value) > TEMP_THRESHOLD/10.0)
+                IDSetNumber(&TemperatureNP, NULL);
+            break;
 
-      switch (TemperatureNP.s)
-      {
-      case IPS_IDLE:
-      case IPS_OK:
-          if (fabs(currentTemperature - TemperatureN[0].value) > TEMP_THRESHOLD/10.0)
+        case IPS_ALERT:
+            break;
+
+        case IPS_BUSY:
+            // If we're within threshold, let's make it BUSY ---> OK
+            if (fabs(TemperatureRequest - TemperatureN[0].value) <= TEMP_THRESHOLD)
+                TemperatureNP.s = IPS_OK;
+
             IDSetNumber(&TemperatureNP, NULL);
-          break;
+            break;
+        }
 
-      case IPS_ALERT:
-        break;
+        if (HasCooler())
+        {
+            errCode = ASIGetControlValue(m_camInfo->CameraID, ASI_COOLER_POWER_PERC, &ASIControlValue, &ASIControlAuto);
+            if (errCode != ASI_SUCCESS)
+            {
+                DEBUGF(INDI::Logger::DBG_ERROR, "ASIGetControlValue ASI_COOLER_POWER_PERC error (%d)", errCode);
+                CoolerNP.s = IPS_ALERT;
+            }
+            else
+            {
+                CoolerN[0].value = ASIControlValue;
+                if (ASIControlValue > 0)
+                    CoolerNP.s = IPS_BUSY;
+                else
+                    CoolerNP.s = IPS_IDLE;
+            }
 
-      case IPS_BUSY:
-        // If we're within threshold, let's make it BUSY ---> OK
-        if (fabs(TemperatureRequest - TemperatureN[0].value) <= TEMP_THRESHOLD)
-          TemperatureNP.s = IPS_OK;
+            IDSetNumber(&CoolerNP, NULL);
+        }
+    }
 
-        IDSetNumber(&TemperatureNP, NULL);
-        break;
-      }
+    if(InWEPulse)
+    {
+        timeleft=calcTimeLeft(WEPulseRequest, &WEPulseStart);
 
-      if (HasCooler())
-      {
-          errCode = ASIGetControlValue(m_camInfo->CameraID, ASI_COOLER_POWER_PERC, &ASIControlValue, &ASIControlAuto);
-          if (errCode != ASI_SUCCESS)
-          {
-              DEBUGF(INDI::Logger::DBG_ERROR, "ASIGetControlValue ASI_COOLER_POWER_PERC error (%d)", errCode);
-              CoolerNP.s = IPS_ALERT;
-          }
-          else
-          {
-              CoolerN[0].value = ASIControlValue;
-              if (ASIControlValue > 0)
-                  CoolerNP.s = IPS_BUSY;
-              else
-                  CoolerNP.s = IPS_IDLE;
-          }
+        if(timeleft <= (POLLMS+50)/1000.0)
+        {
+            //  it's real close now, so spin on it
+            while(timeleft > 0)
+            {
+                int slv;
+                slv=100000*timeleft;
+                usleep(slv);
+                timeleft=calcTimeLeft(WEPulseRequest, &WEPulseStart);
+            }
 
-          IDSetNumber(&CoolerNP, NULL);
-      }
-  }
+            ASIPulseGuideOff(m_camInfo->CameraID, WEDir);
+            DEBUGF(INDI::Logger::DBG_DEBUG, "Stopping %s guide.", WEDir == ASI_GUIDE_EAST ? "East" : "West");
+            InWEPulse = false;
+            GuideComplete(AXIS_RA);
+        }
+    }
 
-  if(InWEPulse)
-  {
-      timeleft=calcTimeLeft(WEPulseRequest, &WEPulseStart);
+    if(InNSPulse)
+    {
+        timeleft=calcTimeLeft(NSPulseRequest, &NSPulseStart);
 
-     if(timeleft <= (POLLMS+50)/1000.0)
-     {
-         //  it's real close now, so spin on it
-         while(timeleft > 0)
-         {
-            int slv;
-            slv=100000*timeleft;
-            usleep(slv);
-            timeleft=calcTimeLeft(WEPulseRequest, &WEPulseStart);
-         }
+        if(timeleft <= (POLLMS+50)/1000.0)
+        {
+            //  it's real close now, so spin on it
+            while(timeleft > 0)
+            {
+                int slv;
+                slv=100000*timeleft;
+                usleep(slv);
+                timeleft=calcTimeLeft(NSPulseRequest, &NSPulseStart);
+            }
 
-         ASIPulseGuideOff(m_camInfo->CameraID, WEDir);
-         DEBUGF(INDI::Logger::DBG_DEBUG, "Stopping %s guide.", WEDir == ASI_GUIDE_EAST ? "East" : "West");
-         InWEPulse = false;
-         GuideComplete(AXIS_RA);
-     }
-  }
+            ASIPulseGuideOff(m_camInfo->CameraID, NSDir);
+            DEBUGF(INDI::Logger::DBG_DEBUG, "Stopping %s guide.", NSDir == ASI_GUIDE_NORTH ? "North" : "South");
+            InNSPulse = false;
+            GuideComplete(AXIS_DE);
+        }
+    }
 
-  if(InNSPulse)
-  {
-      timeleft=calcTimeLeft(NSPulseRequest, &NSPulseStart);
-
-     if(timeleft <= (POLLMS+50)/1000.0)
-     {
-         //  it's real close now, so spin on it
-         while(timeleft > 0)
-         {
-            int slv;
-            slv=100000*timeleft;
-            usleep(slv);
-            timeleft=calcTimeLeft(NSPulseRequest, &NSPulseStart);
-         }
-
-         ASIPulseGuideOff(m_camInfo->CameraID, NSDir);
-         DEBUGF(INDI::Logger::DBG_DEBUG, "Stopping %s guide.", NSDir == ASI_GUIDE_NORTH ? "North" : "South");
-         InNSPulse = false;
-         GuideComplete(AXIS_DE);
-     }
-  }
-
-  SetTimer(POLLMS);
+    SetTimer(POLLMS);
 }
 
 IPState ASICCD::GuideNorth(float ms)
@@ -1497,27 +1512,27 @@ void ASICCD::updateControls()
 void ASICCD::updateRecorderFormat()
 {
 
-    #ifndef OSX_EMBEDED_MODE
+    #if !defined(__APPLE__) && !defined(__CYGWIN__)
     switch (getImageType())
     {
       case ASI_IMG_Y8:
-        streamer->setPixelFormat(V4L2_PIX_FMT_GREY);
+        Streamer->setPixelFormat(V4L2_PIX_FMT_GREY);
         break;
 
       case ASI_IMG_RAW8:
         if (m_camInfo->BayerPattern == ASI_BAYER_RG)
-            streamer->setPixelFormat(V4L2_PIX_FMT_SRGGB8);
+            Streamer->setPixelFormat(V4L2_PIX_FMT_SRGGB8);
         else if (m_camInfo->BayerPattern == ASI_BAYER_BG)
-            streamer->setPixelFormat(V4L2_PIX_FMT_SBGGR8);
+            Streamer->setPixelFormat(V4L2_PIX_FMT_SBGGR8);
         else if (m_camInfo->BayerPattern == ASI_BAYER_GR)
-            streamer->setPixelFormat(V4L2_PIX_FMT_SGRBG8);
+            Streamer->setPixelFormat(V4L2_PIX_FMT_SGRBG8);
         else if (m_camInfo->BayerPattern == ASI_BAYER_GB)
-            streamer->setPixelFormat(V4L2_PIX_FMT_SGBRG8);
+            Streamer->setPixelFormat(V4L2_PIX_FMT_SGBRG8);
          break;
 
       case ASI_IMG_RAW16:
         if (m_camInfo->BayerPattern == ASI_BAYER_BG)
-         streamer->setPixelFormat(V4L2_PIX_FMT_SBGGR16);
+         Streamer->setPixelFormat(V4L2_PIX_FMT_SBGGR16);
         else
         {
             DEBUGF(INDI::Logger::DBG_WARNING, "16 bit bayer format %s it not supported by the SER recorder.", getBayerString());
@@ -1525,7 +1540,7 @@ void ASICCD::updateRecorderFormat()
         break;
 
       case ASI_IMG_RGB24:
-       streamer->setPixelFormat(V4L2_PIX_FMT_RGB24);
+       Streamer->setPixelFormat(V4L2_PIX_FMT_RGB24);
         break;
 
     }
@@ -1533,7 +1548,7 @@ void ASICCD::updateRecorderFormat()
 
 }
 
-#ifndef OSX_EMBEDED_MODE
+#if !defined(__APPLE__) && !defined(__CYGWIN__)
 void * ASICCD::streamVideoHelper(void* context)
 {
     return ((ASICCD*)context)->streamVideo();
@@ -1542,13 +1557,13 @@ void * ASICCD::streamVideoHelper(void* context)
 void* ASICCD::streamVideo()
 {
   int ret=0;
-  pthread_mutex_lock(&condMutex);
-  //unsigned char *compressedFrame = (unsigned char *) malloc(1);
 
   while (true)
   {
+      pthread_mutex_lock(&condMutex);
+
       while (streamPredicate == 0)
-                  pthread_cond_wait(&cv, &condMutex);
+          pthread_cond_wait(&cv, &condMutex);
 
       if (terminateThread)
           break;
@@ -1567,12 +1582,11 @@ void* ASICCD::streamVideo()
 
           DEBUGF(INDI::Logger::DBG_ERROR, "Error reading video data (%d)", ret);
           streamPredicate=0;
-          streamer->setStream(false);
+          Streamer->setStream(false);
           continue;
       }
-      //frameCount++;
 
-      streamer->newFrame(targetFrame);
+      Streamer->newFrame();
   }
 
   pthread_mutex_unlock(&condMutex);
@@ -1591,4 +1605,19 @@ void ASICCD::addFITSKeywords(fitsfile *fptr, CCDChip *targetChip)
         int status=0;
         fits_update_key_s(fptr, TDOUBLE, "Gain", &(gainNP->value), "Gain", &status);
     }
+}
+
+bool ASICCD::saveConfigItems(FILE *fp)
+{
+    INDI::CCD::saveConfigItems(fp);
+
+    if (ControlNP.nnp > 0)
+     IUSaveConfigNumber(fp, &ControlNP);
+
+    if (ControlSP.nsp > 0)
+      IUSaveConfigSwitch(fp, &ControlSP);
+
+    IUSaveConfigSwitch(fp, &VideoFormatSP);
+
+    return true;
 }

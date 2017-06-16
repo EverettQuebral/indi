@@ -16,54 +16,54 @@
  Boston, MA 02110-1301, USA.
 *******************************************************************************/
 
-#ifndef FOCUSSIM_H
-#define FOCUSSIM_H
+#pragma once
 
-#include "indibase/indifocuser.h"
-
-/*  Some headers we need */
-#include <math.h>
-#include <sys/time.h>
-
+#include "indifocuser.h"
 
 class FocusSim : public INDI::Focuser
 {
-    protected:
-    private:
+  public:
+    FocusSim();
+    virtual ~FocusSim();
 
+    const char *getDefaultName();
 
-        double ticks;
-        double initTicks;
+    bool initProperties();
+    void ISGetProperties(const char *dev);
+    bool updateProperties();
 
-        INumberVectorProperty SeeingNP;
-        INumberVectorProperty FWHMNP;
-        INumber SeeingN[1];
-        INumber FWHMN[1];
+    bool Connect();
+    bool Disconnect();
 
-        bool SetupParms();
+    virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n);
+    virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n);
 
-    public:
-        FocusSim();
-        virtual ~FocusSim();
+    virtual IPState MoveFocuser(FocusDirection dir, int speed, uint16_t duration);
+    virtual IPState MoveAbsFocuser(uint32_t internalTicks);
+    virtual IPState MoveRelFocuser(FocusDirection dir, uint32_t internalTicks);
+    virtual bool SetFocuserSpeed(int speed);
 
-        const char *getDefaultName();
+  private:
+    double internalTicks = 0;
+    double initTicks;
 
-        bool initProperties();
-        bool updateProperties();
+    // Seeing in arcseconds
+    INumberVectorProperty SeeingNP;
+    INumber SeeingN[1];
 
-        bool Connect();
-        bool Disconnect();
+    // FWHM to be used by CCD driver to draw 'fuzzy' stars
+    INumberVectorProperty FWHMNP;
+    INumber FWHMN[1];
 
-        void TimerHit();
-
-        virtual bool ISNewNumber (const char *dev, const char *name, double values[], char *names[], int n);
-        virtual bool ISNewSwitch (const char *dev, const char *name, ISState *states, char *names[], int n);
-
-        virtual IPState MoveFocuser(FocusDirection dir, int speed, uint16_t duration);
-        virtual IPState MoveAbsFocuser(uint32_t ticks);
-        virtual IPState MoveRelFocuser(FocusDirection dir, uint32_t ticks);
-        virtual bool SetFocuserSpeed(int speed);
-
+    // Current mode of Focus simulator for testing purposes
+    enum
+    {
+        MODE_ALL,
+        MODE_ABSOLUTE,
+        MODE_RELATIVE,
+        MODE_TIMER,
+        MODE_COUNT
+    };
+    ISwitchVectorProperty ModeSP;
+    ISwitch ModeS[MODE_COUNT];
 };
-
-#endif

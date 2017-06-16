@@ -18,32 +18,24 @@
  Boston, MA 02110-1301, USA.
 *******************************************************************************/
 
-#ifndef PERFECTSTAR_H
-#define PERFECTSTAR_H
+#pragma once
 
-#include "indibase/indifocuser.h"
-#include "indibase/indiusbdevice.h"
-#include "indibase/hidapi.h"
-
-/*  Some headers we need */
-#include <math.h>
-#include <sys/time.h>
+#include "indifocuser.h"
+#include "hidapi.h"
 
 class PerfectStar : public INDI::Focuser
 {
-public:
-
+  public:
     // Perfect Star (PS) status
-    typedef enum { PS_NOOP, PS_IN, PS_OUT, PS_GOTO, PS_SETPOS, PS_LOCKED, PS_HALT=0xFF } PS_STATUS;
+    typedef enum { PS_NOOP, PS_IN, PS_OUT, PS_GOTO, PS_SETPOS, PS_LOCKED, PS_HALT = 0xFF } PS_STATUS;
 
     PerfectStar();
     virtual ~PerfectStar();
 
-    virtual bool ISNewNumber (const char *dev, const char *name, double values[], char *names[], int n);
+    virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n);
 
     const char *getDefaultName();
     virtual bool initProperties();
-    virtual void ISGetProperties (const char *dev);
     virtual bool updateProperties();
     virtual bool saveConfigItems(FILE *fp);
 
@@ -56,8 +48,7 @@ public:
     virtual IPState MoveRelFocuser(FocusDirection dir, uint32_t ticks);
     virtual bool AbortFocuser();
 
-private:
-
+  private:
     hid_device *handle;
     PS_STATUS status;
     bool sim;
@@ -79,7 +70,4 @@ private:
     // Sync to a particular position
     INumber SyncN[1];
     INumberVectorProperty SyncNP;
-
 };
-
-#endif

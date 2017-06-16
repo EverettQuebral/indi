@@ -16,33 +16,29 @@
  Boston, MA 02110-1301, USA.
 *******************************************************************************/
 
-#ifndef SCOPESIM_H
-#define SCOPESIM_H
+#pragma once
 
-#include "indibase/indiguiderinterface.h"
-#include "indibase/inditelescope.h"
-#include "indicontroller.h"
+#include "indiguiderinterface.h"
+#include "inditelescope.h"
 
 class ScopeSim : public INDI::Telescope, public INDI::GuiderInterface
 {
-public:
+  public:
     ScopeSim();
     virtual ~ScopeSim();
 
     virtual const char *getDefaultName();
     virtual bool Connect();
-    virtual bool Connect(const char *port, uint32_t baud);
     virtual bool Disconnect();
     virtual bool ReadScopeStatus();
     virtual bool initProperties();
-    virtual void ISGetProperties (const char *dev);
+    virtual void ISGetProperties(const char *dev);
     virtual bool updateProperties();
 
-    virtual bool ISNewNumber (const char *dev, const char *name, double values[], char *names[], int n);
-    virtual bool ISNewSwitch (const char *dev, const char *name, ISState *states, char *names[], int n);
+    virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n);
+    virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n);
 
-    protected:
-
+  protected:
     virtual bool MoveNS(INDI_DIR_NS dir, TelescopeMotionCommand command);
     virtual bool MoveWE(INDI_DIR_WE dir, TelescopeMotionCommand command);
     virtual bool Abort();
@@ -53,17 +49,16 @@ public:
     virtual IPState GuideWest(float ms);
     virtual bool updateLocation(double latitude, double longitude, double elevation);
 
-    bool Goto(double,double);
+    bool Goto(double, double);
     bool Park();
     bool UnPark();
     bool Sync(double ra, double dec);
 
     // Parking
-    virtual void SetCurrentPark();
-    virtual void SetDefaultPark();
+    virtual bool SetCurrentPark();
+    virtual bool SetDefaultPark();
 
-    private:
-
+  private:
     double currentRA;
     double currentDEC;
     double targetRA;
@@ -88,7 +83,4 @@ public:
 
     ISwitch PEErrWES[2];
     ISwitchVectorProperty PEErrWESP;
-
 };
-
-#endif // SCOPESIM_H

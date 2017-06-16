@@ -5,11 +5,6 @@ LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/")
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake_modules/")
 include(GNUInstallDirs)
 
-set(UDEVRULES_INSTALL_DIR "/lib/udev/rules.d" CACHE STRING "Base directory for udev rules")
-
-
-set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS}")
-
 find_package(CFITSIO REQUIRED)
 find_package(INDI REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -27,7 +22,18 @@ include_directories( ${CMAKE_CURRENT_SOURCE_DIR})
 include_directories( ${INDI_INCLUDE_DIR})
 include_directories( ${CFITSIO_INCLUDE_DIR})
 
-if (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "armv5l")
+IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++11")
+ELSE ()
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+ENDIF ()
+
+if (APPLE)
+    set(ASICAMLIB ${CMAKE_CURRENT_SOURCE_DIR}/mac/libASICamera2.bin)
+    set(ASIFWLIB ${CMAKE_CURRENT_SOURCE_DIR}/mac/libEFWFilter.bin)
+    message("-- Using Mac static ASI library")
+elseif (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "armv5l")
     set(ASICAMLIB ${CMAKE_CURRENT_SOURCE_DIR}/armv5/libASICamera2.bin)
     set(ASIFWLIB ${CMAKE_CURRENT_SOURCE_DIR}/armv5/libEFWFilter.bin)
     add_definitions(-DLOW_USB_BANDWIDTH)
@@ -64,16 +70,16 @@ set(indi_asi_SRCS
 
 add_executable(indi_asi_ccd ${indi_asi_SRCS})
 
-target_link_libraries(indi_asi_ccd ${INDI_DRIVER_LIBRARIES} ${CFITSIO_LIBRARIES} ${ASICAMLIB} ${LIBUSB_1_LIBRARIES} ${ZLIB_LIBRARY} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(indi_asi_ccd ${INDI_LIBRARIES} ${CFITSIO_LIBRARIES} ${ASICAMLIB} ${LIBUSB_1_LIBRARIES} ${ZLIB_LIBRARY} ${CMAKE_THREAD_LIBS_INIT})
 
 
 ########### indi_asi_wheel ###########
 add_executable(indi_asi_wheel ${CMAKE_CURRENT_SOURCE_DIR}/asi_wheel.cpp)
 IF (APPLE)
 set(CMAKE_EXE_LINKER_FLAGS "-framework IOKit -framework CoreFoundation")
-target_link_libraries(indi_asi_wheel ${INDI_DRIVER_LIBRARIES} ${LIBUSB_LIBRARIES})
+target_link_libraries(indi_asi_wheel ${INDI_LIBRARIES} ${ASIFWLIB} ${LIBUSB_LIBRARIES})
 ELSE()
-target_link_libraries(indi_asi_wheel ${INDI_DRIVER_LIBRARIES} ${ASIFWLIB} ${LIBUSB_1_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(indi_asi_wheel ${INDI_LIBRARIES} ${ASIFWLIB} ${LIBUSB_1_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 ENDIF()
 
 
@@ -85,4 +91,4 @@ endif (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "arm*")
 install(TARGETS indi_asi_ccd RUNTIME DESTINATION bin)
 install(TARGETS indi_asi_wheel RUNTIME DESTINATION bin)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/indi_asi.xml DESTINATION ${INDI_DATA_DIR})
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/99-asi.rules DESTINATION ${UDEVRULES_INSTALL_DIR})
+
