@@ -6,7 +6,7 @@ LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake_modules/"
 include(GNUInstallDirs)
 
 set (APOGEE_VERSION_MAJOR 1)
-set (APOGEE_VERSION_MINOR 5)
+set (APOGEE_VERSION_MINOR 6)
 
 set(BIN_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/bin")
 
@@ -24,12 +24,7 @@ include_directories( ${INDI_INCLUDE_DIR})
 include_directories( ${CFITSIO_INCLUDE_DIR})
 include_directories( ${APOGEE_INCLUDE_DIR})
 
-IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++11")
-ELSE ()
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-ENDIF ()
+include(CMakeCommon)
 
 ########### QSI ###########
 set(indiapogee_SRCS

@@ -38,38 +38,46 @@ class LX200AstroPhysics : public LX200Generic
     LX200AstroPhysics();
     ~LX200AstroPhysics() {}
 
-    virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n);
-    virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n);
-    virtual void ISGetProperties(const char *dev);
+    typedef enum { MCV_G, MCV_H, MCV_I, MCV_J, MCV_L, MCV_UNKNOWN} ControllerVersion;
+    typedef enum { GTOCP1, GTOCP2, GTOCP3, GTOCP4, GTOCP_UNKNOWN} ServoVersion;
 
-    void setupTelescope();
-
-    bool isMountInit(void);
+    virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n) override;
+    virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n) override;
+    virtual void ISGetProperties(const char *dev) override;
 
   protected:
-    virtual const char *getDefaultName();
-    bool initProperties();
-    bool updateProperties();
+    virtual const char *getDefaultName() override;
+    virtual bool initProperties() override;
+    virtual bool updateProperties() override;
 
-    virtual bool ReadScopeStatus();
-    virtual bool Handshake();
-    virtual bool Disconnect();
+    virtual bool ReadScopeStatus() override;
+    virtual bool Handshake() override;
+    virtual bool Disconnect() override;
 
     // Parking
-    virtual bool SetCurrentPark();
-    virtual bool SetDefaultPark();
-    virtual bool Park();
-    virtual bool UnPark();
+    virtual bool SetCurrentPark() override;
+    virtual bool SetDefaultPark() override;
+    virtual bool Park() override;
+    virtual bool UnPark() override;
 
-    virtual bool Sync(double ra, double dec);
-    virtual bool Goto(double, double);
-    virtual bool updateTime(ln_date *utc, double utc_offset);
-    virtual bool updateLocation(double latitude, double longitude, double elevation);
-    virtual bool SetSlewRate(int index);
+    virtual bool Sync(double ra, double dec) override;
+    virtual bool Goto(double, double) override;
+    virtual bool updateTime(ln_date *utc, double utc_offset) override;
+    virtual bool updateLocation(double latitude, double longitude, double elevation) override;
+    virtual bool SetSlewRate(int index) override;
 
-    virtual void debugTriggered(bool enable);
-    bool setBasicDataPart0();
-    bool setBasicDataPart1();
+    virtual int  SendPulseCmd(int direction, int duration_msec) override;
+
+    virtual bool getUTFOffset(double *offset) override;
+
+    // Tracking
+    virtual bool SetTrackMode(uint8_t mode) override;
+    virtual bool SetTrackEnabled(bool enabled) override;
+    virtual bool SetTrackRate(double raRate, double deRate) override;
+
+    virtual bool saveConfigItems(FILE *fp) override;
+
+    virtual void debugTriggered(bool enable) override;
 
     ISwitch StartUpS[2];
     ISwitchVectorProperty StartUpSP;
@@ -80,14 +88,18 @@ class LX200AstroPhysics : public LX200Generic
     INumber HorizontalCoordsN[2];
     INumberVectorProperty HorizontalCoordsNP;
 
-    ISwitch SlewSpeedS[3];
-    ISwitchVectorProperty SlewSpeedSP;
+    ISwitch APSlewSpeedS[3];
+    ISwitchVectorProperty APSlewSpeedSP;
 
     ISwitch SwapS[2];
     ISwitchVectorProperty SwapSP;
 
     ISwitch SyncCMRS[2];
     ISwitchVectorProperty SyncCMRSP;
+    enum { USE_REGULAR_SYNC, USE_CMR_SYNC };
+
+    ISwitch APGuideSpeedS[3];
+    ISwitchVectorProperty APGuideSpeedSP;
 
     IText VersionT[1];
     ITextVectorProperty VersionInfo;
@@ -95,13 +107,19 @@ class LX200AstroPhysics : public LX200Generic
     IText DeclinationAxisT[1];
     ITextVectorProperty DeclinationAxisTP;
 
-    //INumber APSiderealTimeN[1];
-    //INumberVectorProperty APSiderealTimeNP;
-
     INumber SlewAccuracyN[2];
     INumberVectorProperty SlewAccuracyNP;
 
   private:
-    bool timeUpdated, locationUpdated;
-    int initStatus;
+    bool isMountInit();
+    bool setBasicDataPart0();
+    bool setBasicDataPart1();
+
+    // Side of pier
+    void syncSideOfPier();
+
+    bool timeUpdated=false, locationUpdated=false;
+    ControllerVersion controllerType = MCV_UNKNOWN;
+    ServoVersion servoType = GTOCP_UNKNOWN;
+    uint8_t initStatus = MOUNTNOTINITIALIZED;
 };

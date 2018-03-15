@@ -43,7 +43,12 @@
 
 #define J2000       2451545.0
 #define ERRMSG_SIZE 1024
-#define INDI_DEBUG
+
+#define STELLAR_DAY        86164.098903691
+#define TRACKRATE_SIDEREAL ((360.0 * 3600.0) / STELLAR_DAY)
+#define SOLAR_DAY          86400
+#define TRACKRATE_SOLAR    ((360.0 * 3600.0) / SOLAR_DAY)
+#define TRACKRATE_LUNAR    14.511415
 
 extern const char *Direction[];
 extern const char *SolarSystem[];
@@ -60,7 +65,8 @@ enum TTY_ERROR
     TTY_TIME_OUT     = -4,
     TTY_PORT_FAILURE = -5,
     TTY_PARAM_ERROR  = -6,
-    TTY_ERRNO        = -7
+    TTY_ERRNO        = -7,
+    TTY_OVERFLOW     = -8
 };
 
 #ifdef __cplusplus
@@ -93,6 +99,18 @@ int tty_read(int fd, char *buf, int nbytes, int timeout, int *nbytes_read);
 */
 
 int tty_read_section(int fd, char *buf, char stop_char, int timeout, int *nbytes_read);
+
+/** \brief read buffer from terminal with a delimiter
+    \param fd file descriptor
+    \param buf pointer to store data. Must be initilized and big enough to hold data.
+    \param stop_char if the function encounters \e stop_char then it stops reading and returns the buffer.
+    \param nsize size of buf. If stop character is not encountered before nsize, the function aborts.
+    \param timeout number of seconds to wait for terminal before a timeout error is issued.
+    \param nbytes_read the number of bytes read.
+    \return On success, it returns TTY_OK, otherwise, a TTY_ERROR code.
+*/
+
+int tty_nread_section(int fd, char *buf, int nsize, char stop_char, int timeout, int *nbytes_read);
 
 /** \brief Writes a buffer to fd.
     \param fd file descriptor
@@ -142,6 +160,7 @@ void tty_error_msg(int err_code, char *err_msg, int err_msg_len);
  * @param debug 1 to enable, 0 to disable
  */
 void tty_set_debug(int debug);
+void tty_set_gemini_udp_format(int enabled);
 
 int tty_timeout(int fd, int timeout);
 /*@}*/
@@ -204,7 +223,7 @@ int numberFormat(char *buf, const char *format, double value);
 /** \brief Create an ISO 8601 formatted time stamp. The format is YYYY-MM-DDTHH:MM:SS
     \return The formatted time stamp.
 */
-const char *timestamp(void);
+const char *timestamp();
 
 /**
  * @brief rangeHA Limits the hour angle value to be between -12 ---> 12
@@ -235,11 +254,11 @@ double range360(double r);
 double rangeDec(double r);
 
 /**
- * @brief get_local_sideral_time Returns local sideral time given longitude and system clock.
+ * @brief get_local_sidereal_time Returns local sideral time given longitude and system clock.
  * @param longitude Longitude in INDI format (0 to 360) increasing eastward.
- * @return Local Sideral Time.
+ * @return Local Sidereal Time.
  */
-double get_local_sideral_time(double longitude);
+double get_local_sidereal_time(double longitude);
 
 /**
  * @brief get_local_hour_angle Returns local hour angle of an object

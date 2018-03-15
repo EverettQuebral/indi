@@ -39,12 +39,12 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <errno.h>
+#include <cerrno>
 #include <sys/mman.h>
-#include <string.h>
+#include <cstring>
 #include <asm/types.h> /* for videodev2.h */
-#include <time.h>
-#include <math.h>
+#include <ctime>
+#include <cmath>
 #include <sys/time.h>
 
 /* Kernel headers version */
@@ -124,6 +124,9 @@ using namespace std;
   return src;
 }*/
 
+namespace INDI
+{
+
 V4L2_Base::V4L2_Base()
 {
     frameRate.numerator   = 1;
@@ -152,11 +155,6 @@ V4L2_Base::V4L2_Base()
     decoder->init();
     dodecode = true;
 
-    v4l2_record = new V4L2_Record();
-    recorder    = v4l2_record->getDefaultRecorder();
-    recorder->init();
-    dorecord = false;
-
     bpp                                           = 8;
     has_ext_pix_format                            = false;
     const std::vector<unsigned int> &vsuppformats = decoder->getsupportedformats();
@@ -182,7 +180,6 @@ V4L2_Base::V4L2_Base()
 V4L2_Base::~V4L2_Base()
 {
     delete v4l2_decode;
-    delete v4l2_record;
 }
 
 /** @brief Helper indicating whether current pixel format is compressed or not.
@@ -202,6 +199,7 @@ bool V4L2_Base::is_compressed() const
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0))
     switch (fmt.fmt.pix.pixelformat)
     {
+        case V4L2_PIX_FMT_JPEG:
         case V4L2_PIX_FMT_MJPEG:
             DEBUGFDEVICE(deviceName, INDI::Logger::DBG_DEBUG, "%s: format %c%c%c%c patched to be considered compressed",
                          __FUNCTION__, fmt.fmt.pix.pixelformat, fmt.fmt.pix.pixelformat >> 8,
@@ -356,16 +354,6 @@ int V4L2_Base::errno_exit(const char *s, char *errmsg)
 void V4L2_Base::doDecode(bool d)
 {
     dodecode = d;
-}
-
-void V4L2_Base::doRecord(bool d)
-{
-    dorecord = d;
-}
-
-void V4L2_Base::setRecorder(V4L2_Recorder *r)
-{
-    recorder = r;
 }
 
 int V4L2_Base::connectCam(const char *devpath, char *errmsg, int pixelFormat, int width, int height)
@@ -540,6 +528,7 @@ int V4L2_Base::read_frame(char *errmsg)
                         /* Fall through */
                         DEBUGFDEVICE(deviceName, INDI::Logger::DBG_DEBUG,
                                      "%s: transitory internal error with DQBUF ioctl (EIO)", __FUNCTION__);
+                        return 0;
 
                     case EINVAL:
                     case EPIPE:
@@ -640,12 +629,14 @@ int V4L2_Base::read_frame(char *errmsg)
                 decoder->decode((unsigned char *)(buffers[buf.index].start), &buf);
             }
 
+            /*
             if (dorecord)
             {
                 DEBUGFDEVICE(deviceName, INDI::Logger::DBG_DEBUG, "%s: [%p] recording %d-byte buffer %p", __FUNCTION__,
                              recorder, buf.bytesused, buffers[buf.index].start);
                 recorder->writeFrame((unsigned char *)(buffers[buf.index].start));
             }
+            */
 
             //DEBUGFDEVICE(deviceName, INDI::Logger::DBG_DEBUG,"lxstate is %d, dropFrame %c\n", lxstate, (dropFrame?'Y':'N'));
 
@@ -1334,7 +1325,7 @@ int V4L2_Base::init_device(char *errmsg)
     return 0;
 }
 
-void V4L2_Base::close_device(void)
+void V4L2_Base::close_device()
 {
     char errmsg[ERRMSGSIZ];
     uninit_device(errmsg);
@@ -1738,7 +1729,7 @@ int V4L2_Base::setcroprect(int x, int y, int w, int h, char *errmsg)
         if ((!cancrop) && (!softcrop))
         {
             cropset = false;
-            strncpy(errmsg, "No hardware and sofwtare cropping for this format", ERRMSGSIZ);
+            strncpy(errmsg, "No hardware and software cropping for this format.", ERRMSGSIZ);
             return -1;
         }
     }
@@ -1957,7 +1948,7 @@ void V4L2_Base::findMinMax()
     cerr << "Min X: " << xmin << " - Max X: " << xmax << " - Min Y: " << ymin << " - Max Y: " << ymax << endl;
 }
 
-void V4L2_Base::enumerate_ctrl(void)
+void V4L2_Base::enumerate_ctrl()
 {
     char errmsg[ERRMSGSIZ];
     CLEAR(queryctrl);
@@ -2034,7 +2025,7 @@ void V4L2_Base::enumerate_ctrl(void)
     }
 }
 
-void V4L2_Base::enumerate_menu(void)
+void V4L2_Base::enumerate_menu()
 {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0))
     if (queryctrl.type == V4L2_CTRL_TYPE_MENU)
@@ -2588,8 +2579,12 @@ int V4L2_Base::setINTControl(unsigned int ctrl_id, double new_value, char *errms
     if ((queryctrl.flags & V4L2_CTRL_FLAG_READ_ONLY) || (queryctrl.flags & V4L2_CTRL_FLAG_GRABBED) ||
         (queryctrl.flags & V4L2_CTRL_FLAG_INACTIVE) || (queryctrl.flags & V4L2_CTRL_FLAG_VOLATILE))
     {
-        DEBUGFDEVICE(deviceName, INDI::Logger::DBG_DEBUG, "Can not set control %.*s (%d)", (int)sizeof(queryctrl.name),
-                     queryctrl.name, queryctrl.flags);
+        DEBUGFDEVICE(deviceName, INDI::Logger::DBG_WARNING, "Setting INT control %.*s will fail, currently %s%s%s%s",
+                     (int)sizeof(queryctrl.name), queryctrl.name,
+                     queryctrl.flags&V4L2_CTRL_FLAG_READ_ONLY?"read only ":"",
+                     queryctrl.flags&V4L2_CTRL_FLAG_GRABBED?"grabbed ":"",
+                     queryctrl.flags&V4L2_CTRL_FLAG_INACTIVE?"inactive ":"",
+                     queryctrl.flags&V4L2_CTRL_FLAG_VOLATILE?"volatile":"");
         return 0;
     }
 
@@ -2600,7 +2595,11 @@ int V4L2_Base::setINTControl(unsigned int ctrl_id, double new_value, char *errms
     control.id    = ctrl_id;
     control.value = (int)new_value;
     if (-1 == XIOCTL(fd, VIDIOC_S_CTRL, &control))
+    {
+        DEBUGFDEVICE(deviceName, INDI::Logger::DBG_ERROR, "Setting INT control %.*s failed (%s)",
+               (int)sizeof(queryctrl.name), queryctrl.name, errmsg);
         return errno_exit("VIDIOC_S_CTRL", errmsg);
+    }
     return 0;
 }
 
@@ -2616,8 +2615,12 @@ int V4L2_Base::setOPTControl(unsigned int ctrl_id, unsigned int new_value, char 
     if ((queryctrl.flags & V4L2_CTRL_FLAG_READ_ONLY) || (queryctrl.flags & V4L2_CTRL_FLAG_GRABBED) ||
         (queryctrl.flags & V4L2_CTRL_FLAG_INACTIVE) || (queryctrl.flags & V4L2_CTRL_FLAG_VOLATILE))
     {
-        DEBUGFDEVICE(deviceName, INDI::Logger::DBG_DEBUG, "Can not set control %.*s (%d)", (int)sizeof(queryctrl.name),
-                     queryctrl.name, queryctrl.flags);
+        DEBUGFDEVICE(deviceName, INDI::Logger::DBG_DEBUG, "Setting OPT control %.*s will fail, currently %s%s%s%s",
+                     (int)sizeof(queryctrl.name), queryctrl.name,
+                     queryctrl.flags&V4L2_CTRL_FLAG_READ_ONLY?"read only ":"",
+                     queryctrl.flags&V4L2_CTRL_FLAG_GRABBED?"grabbed ":"",
+                     queryctrl.flags&V4L2_CTRL_FLAG_INACTIVE?"inactive ":"",
+                     queryctrl.flags&V4L2_CTRL_FLAG_VOLATILE?"volatile":"");
         return 0;
     }
 
@@ -2628,11 +2631,15 @@ int V4L2_Base::setOPTControl(unsigned int ctrl_id, unsigned int new_value, char 
     control.id    = ctrl_id;
     control.value = new_value;
     if (-1 == XIOCTL(fd, VIDIOC_S_CTRL, &control))
+    {
+        DEBUGFDEVICE(deviceName, INDI::Logger::DBG_ERROR, "Setting INT control %.*s failed (%s)",
+               (int)sizeof(queryctrl.name), queryctrl.name, errmsg);
         return errno_exit("VIDIOC_S_CTRL", errmsg);
+    }
     return 0;
 }
 
-bool V4L2_Base::enumerate_ext_ctrl(void)
+bool V4L2_Base::enumerate_ext_ctrl()
 {
     //struct v4l2_queryctrl queryctrl;
 
@@ -2899,4 +2906,10 @@ bool V4L2_Base::queryExtControls(INumberVectorProperty *nvp, unsigned int *nnumb
     *noptions = nopt;
 
     return true;
+}
+
+void V4L2_Base::setDeviceName(const char *name)
+{
+    strncpy(deviceName, name, MAXINDIDEVICE);
+}
 }

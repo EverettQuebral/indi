@@ -20,13 +20,14 @@
 
 #include "indifilterwheel.h"
 
+/**
+ * @brief The FilterSim class provides a simple simulator to change filters. The filter names are saved to a config file when updated.
+ */
 class FilterSim : public INDI::FilterWheel
 {
-  protected:
-  private:
   public:
-    FilterSim();
-    virtual ~FilterSim();
+    FilterSim() = default;
+    virtual ~FilterSim() = default;
 
     const char *getDefaultName();
 
@@ -34,7 +35,4 @@ class FilterSim : public INDI::FilterWheel
     bool Disconnect();
     bool SelectFilter(int);
     void TimerHit();
-
-    virtual bool SetFilterNames() { return true; }
-    virtual bool GetFilterNames(const char *groupName);
 };

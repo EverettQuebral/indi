@@ -53,21 +53,20 @@ class XAGYLWheel : public INDI::FilterWheel
     XAGYLWheel();
     virtual ~XAGYLWheel();
 
-    virtual bool initProperties();
-    virtual bool updateProperties();
+    virtual bool initProperties() override;
+    virtual bool updateProperties() override;
 
-    virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n);
-    virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n);
+    virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n) override;
+    virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n) override;
 
   protected:
-    const char *getDefaultName();
+    const char *getDefaultName() override;
 
-    bool Handshake();
-    void TimerHit();
+    bool Handshake() override;
+    void TimerHit() override;
 
-    bool SelectFilter(int);
-    virtual bool SetFilterNames() { return true; }
-    virtual bool GetFilterNames(const char *groupName);
+    bool SelectFilter(int) override;
+    bool saveConfigItems(FILE *fp) override;
 
   private:
     bool getCommand(GET_COMMAND cmd, char *result);
@@ -103,13 +102,12 @@ class XAGYLWheel : public INDI::FilterWheel
 
     // Filter Offset
     INumberVectorProperty OffsetNP;
-    INumber *OffsetN;
+    INumber *OffsetN { nullptr };
 
     // Reset
     ISwitchVectorProperty ResetSP;
     ISwitch ResetS[4];
 
-    bool sim;
     SimData simData;
-    uint8_t firmwareVersion;
+    uint8_t firmwareVersion { 0 };
 };

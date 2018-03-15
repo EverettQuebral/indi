@@ -18,18 +18,16 @@
 
 #include "focus_simulator.h"
 
-#include <math.h>
+#include <cmath>
 #include <memory>
-#include <string.h>
+#include <cstring>
 #include <unistd.h>
 
 // We declare an auto pointer to focusSim.
 std::unique_ptr<FocusSim> focusSim(new FocusSim());
 
-#define SIM_SEEING 0
-#define SIM_FWHM   1
-#define FOCUS_MOTION_DELAY \
-    100 /* Focuser takes 100 microsecond to move for each step, completing 100,000 steps in 10 seconds */
+// Focuser takes 100 microsecond to move for each step, completing 100,000 steps in 10 seconds
+#define FOCUS_MOTION_DELAY 100
 
 void ISPoll(void *p);
 
@@ -38,19 +36,19 @@ void ISGetProperties(const char *dev)
     focusSim->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    focusSim->ISNewSwitch(dev, name, states, names, num);
+    focusSim->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    focusSim->ISNewText(dev, name, texts, names, num);
+    focusSim->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    focusSim->ISNewNumber(dev, name, values, names, num);
+    focusSim->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -76,14 +74,7 @@ void ISSnoopDevice(XMLEle *root)
 ************************************************************************************/
 FocusSim::FocusSim()
 {
-    SetFocuserCapability(FOCUSER_CAN_ABS_MOVE | FOCUSER_CAN_REL_MOVE | FOCUSER_HAS_VARIABLE_SPEED);
-}
-
-/************************************************************************************
- *
-************************************************************************************/
-FocusSim::~FocusSim()
-{
+    FI::SetCapability(FOCUSER_CAN_ABS_MOVE | FOCUSER_CAN_REL_MOVE | FOCUSER_HAS_VARIABLE_SPEED);
 }
 
 /************************************************************************************
@@ -108,7 +99,7 @@ bool FocusSim::Disconnect()
 ************************************************************************************/
 const char *FocusSim::getDefaultName()
 {
-    return (char *)"Focuser Simulator";
+    return (const char *)"Focuser Simulator";
 }
 
 /************************************************************************************
@@ -116,7 +107,7 @@ const char *FocusSim::getDefaultName()
 ************************************************************************************/
 void FocusSim::ISGetProperties(const char *dev)
 {
-    if (dev && strcmp(dev, getDeviceName()))
+    if (dev != nullptr && strcmp(dev, getDeviceName()) != 0)
         return;
 
     INDI::Focuser::ISGetProperties(dev);
@@ -186,10 +177,10 @@ bool FocusSim::updateProperties()
 ************************************************************************************/
 bool FocusSim::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         // Modes
-        if (!strcmp(ModeSP.name, name))
+        if (strcmp(ModeSP.name, name) == 0)
         {
             IUUpdateSwitch(&ModeSP, states, names, n);
             uint32_t cap = 0;
@@ -219,7 +210,7 @@ bool FocusSim::ISNewSwitch(const char *dev, const char *name, ISState *states, c
                     return true;
             }
 
-            SetFocuserCapability(cap);
+            FI::SetCapability(cap);
             ModeSP.s = IPS_OK;
             IDSetSwitch(&ModeSP, nullptr);
             return true;
@@ -234,7 +225,7 @@ bool FocusSim::ISNewSwitch(const char *dev, const char *name, ISState *states, c
 ************************************************************************************/
 bool FocusSim::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (strcmp(name, "SEEING_SETTINGS") == 0)
         {
@@ -266,7 +257,7 @@ IPState FocusSim::MoveFocuser(FocusDirection dir, int speed, uint16_t duration)
         if (internalTicks < FocusAbsPosN[0].min || internalTicks > FocusAbsPosN[0].max)
         {
             internalTicks -= targetTicks;
-            DEBUG(INDI::Logger::DBG_ERROR, "Cannot move focuser in this direction any further.");
+            LOG_ERROR("Cannot move focuser in this direction any further.");
             return IPS_ALERT;
         }
     }
@@ -278,7 +269,7 @@ IPState FocusSim::MoveFocuser(FocusDirection dir, int speed, uint16_t duration)
 
     FWHMN[0].value = 0.5625 * ticks * ticks + SeeingN[0].value;
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "TIMER Current internal ticks: %g FWHM ticks: %g FWHM: %g", internalTicks, ticks,
+    LOGF_DEBUG("TIMER Current internal ticks: %g FWHM ticks: %g FWHM: %g", internalTicks, ticks,
            FWHMN[0].value);
 
     if (mode == MODE_ALL)
@@ -314,7 +305,7 @@ IPState FocusSim::MoveAbsFocuser(uint32_t targetTicks)
 
     FWHMN[0].value = 0.5625 * ticks * ticks + SeeingN[0].value;
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "ABS Current internal ticks: %g FWHM ticks: %g FWHM: %g", internalTicks, ticks,
+    LOGF_DEBUG("ABS Current internal ticks: %g FWHM ticks: %g FWHM: %g", internalTicks, ticks,
            FWHMN[0].value);
 
     if (FWHMN[0].value < SeeingN[0].value)
@@ -347,7 +338,7 @@ IPState FocusSim::MoveRelFocuser(FocusDirection dir, uint32_t ticks)
 
     ticks = initTicks + (internalTicks - mid) / 5000.0;
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "REL Current internal ticks: %g FWHM ticks: %g FWHM: %g", internalTicks, ticks,
+    LOGF_DEBUG("REL Current internal ticks: %g FWHM ticks: %g FWHM: %g", internalTicks, ticks,
            FWHMN[0].value);
 
     FWHMN[0].value = 0.5625 * ticks * ticks + SeeingN[0].value;

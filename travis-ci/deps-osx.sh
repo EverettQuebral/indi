@@ -3,12 +3,12 @@
 set -e
 
 brew update
-brew tap 'homebrew/homebrew-science'
 brew tap 'caskroom/drivers'
-brew tap 'jochym/indi'
+brew tap 'indilib/indi'
+
+brew upgrade cmake
 
 brew install \
-	cmake \
 	dcraw \
 	fakeroot \
 	gsl \
@@ -18,7 +18,9 @@ brew install \
 	gpsd \
 	libraw \
 	libcfitsio \
-	libnova 
+	libnova  \
+	librtlsdr  \
+	libfftw3
 			
 brew cask install \
 	sbig-universal-driver

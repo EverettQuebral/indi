@@ -10,7 +10,7 @@
 
 #include <dirent.h>
 #include <dlfcn.h>
-#include <sys/errno.h>
+#include <cerrno>
 
 namespace INDI
 {
@@ -179,7 +179,8 @@ void MathPluginManagement::ProcessTextProperties(Telescope *pTelescope, const ch
 void MathPluginManagement::ProcessSwitchProperties(Telescope *pTelescope, const char *name, ISState *states,
                                                    char *names[], int n)
 {
-    DEBUGFDEVICE(pTelescope->getDeviceName(), INDI::Logger::DBG_DEBUG, "ProcessSwitchProperties - name(%s)", name);
+    //DEBUGFDEVICE(pTelescope->getDeviceName(), INDI::Logger::DBG_DEBUG, "ProcessSwitchProperties - name(%s)", name);
+    INDI_UNUSED(pTelescope);
     if (strcmp(name, AlignmentSubsystemMathPluginsV.name) == 0)
     {
         int CurrentPlugin = IUFindOnSwitchIndex(&AlignmentSubsystemMathPluginsV);
@@ -285,7 +286,7 @@ void MathPluginManagement::SetApproximateMountAlignmentFromMountType(MountType_t
 {
     if (EQUATORIAL == Type)
     {
-        ln_lnlat_posn Position;
+        ln_lnlat_posn Position { 0, 0 };
         if (CurrentInMemoryDatabase->GetDatabaseReferencePosition(Position))
         {
             if (Position.lat >= 0)

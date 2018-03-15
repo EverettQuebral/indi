@@ -24,11 +24,6 @@
 
 #include <memory>
 
-const int POLLMS           = 500; /* Polling interval 500 ms */
-//const int MAX_CCD_TEMP     = 45;  /* Max CCD temperature */
-//const int MIN_CCD_TEMP     = -55; /* Min CCD temperature */
-//const float TEMP_THRESHOLD = .25; /* Differential temperature threshold (C)*/
-
 /* Macro shortcut to CCD temperature value */
 #define currentCCDTemperature TemperatureN[0].value
 
@@ -39,19 +34,19 @@ void ISGetProperties(const char *dev)
     simpleCCD->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    simpleCCD->ISNewSwitch(dev, name, states, names, num);
+    simpleCCD->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    simpleCCD->ISNewText(dev, name, texts, names, num);
+    simpleCCD->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    simpleCCD->ISNewNumber(dev, name, values, names, num);
+    simpleCCD->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -72,11 +67,6 @@ void ISSnoopDevice(XMLEle *root)
     simpleCCD->ISSnoopDevice(root);
 }
 
-SimpleCCD::SimpleCCD()
-{
-    InExposure = false;
-}
-
 /**************************************************************************************
 ** Client is asking us to establish connection to the device
 ***************************************************************************************/
@@ -86,7 +76,6 @@ bool SimpleCCD::Connect()
 
     // Let's set a timer that checks teleCCDs status every POLLMS milliseconds.
     SetTimer(POLLMS);
-
     return true;
 }
 
@@ -121,6 +110,8 @@ bool SimpleCCD::initProperties()
 
     // Add Debug, Simulator, and Configuration controls
     addAuxControls();
+
+    setDefaultPollingPeriod(500);
 
     return true;
 }
@@ -206,7 +197,7 @@ float SimpleCCD::CalcTimeLeft()
 {
     double timesince;
     double timeleft;
-    struct timeval now;
+    struct timeval now { 0, 0 };
     gettimeofday(&now, nullptr);
 
     timesince = (double)(now.tv_sec * 1000.0 + now.tv_usec / 1000) -
@@ -224,7 +215,7 @@ void SimpleCCD::TimerHit()
 {
     long timeleft;
 
-    if (isConnected() == false)
+    if (!isConnected())
         return; //  No need to reset timer if we are not connected anymore
 
     if (InExposure)
@@ -284,7 +275,6 @@ void SimpleCCD::TimerHit()
     }
 
     SetTimer(POLLMS);
-    return;
 }
 
 /**************************************************************************************

@@ -23,16 +23,28 @@
 #include "connectioninterface.h"
 
 #include <stdint.h>
-#include <stdlib.h>
+#include <cstdlib>
 #include <string>
 
 namespace Connection
 {
+/**
+ * @brief The TCP class manages connection with devices over the network via TCP/IP.
+ * Upon successfull connection, reads & writes from and to the device are performed via the returned file descriptor
+ * using standard UNIX read/write functions.
+ */
+
 class TCP : public Interface
 {
   public:
+    enum ConnectionType
+    {
+        TYPE_TCP = 0,
+        TYPE_UDP
+    };
+
     TCP(INDI::DefaultDevice *dev);
-    virtual ~TCP();
+    virtual ~TCP() = default;
 
     virtual bool Connect();
 
@@ -50,16 +62,21 @@ class TCP : public Interface
     virtual uint32_t port() { return atoi(AddressT[0].text); }
 
     virtual bool ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n);
+    virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n);
     virtual bool saveConfigItems(FILE *fp);
 
     int getPortFD() const { return PortFD; }
     void setDefaultHost(const char *addressHost);
     void setDefaultPort(uint32_t addressPort);
+    void setConnectionType(int type);
 
   protected:
     // IP Address/Port
     ITextVectorProperty AddressTP;
     IText AddressT[2];
+
+    ISwitch TcpUdpS[2];
+    ISwitchVectorProperty TcpUdpSP;
 
     int sockfd                   = -1;
     const uint8_t SOCKET_TIMEOUT = 5;

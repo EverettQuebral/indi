@@ -20,12 +20,7 @@ include_directories( ${CFITSIO_INCLUDE_DIR})
 include_directories( ${GLIB2_INCLUDE_DIRS})
 include_directories( ${Arv_INCLUDE_DIRS})
 
-IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++11")
-ELSE ()
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-ENDIF ()
+include(CMakeCommon)
 
 ############# GENERIC CCD ###############
 if (CFITSIO_FOUND)
@@ -36,6 +31,10 @@ if (CFITSIO_FOUND)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ArvFactory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/BlackFly.cpp
 )
+
+IF (UNITY_BUILD)
+    ENABLE_UNITY_BUILD(indigige GIGE_SRCS 10 cpp)
+ENDIF ()
 
 add_executable(indi_gige_ccd ${GIGE_SRCS})
 

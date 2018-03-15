@@ -25,37 +25,36 @@
 #include "sqm.h"
 
 #include "connectionplugins/connectiontcp.h"
+#include "connectionplugins/connectionserial.h"
 
+#include <cerrno>
 #include <memory>
-#include <string.h>
+#include <cstring>
 #include <unistd.h>
-#include <sys/errno.h>
 
 // We declare an auto pointer to SQM.
 std::unique_ptr<SQM> sqm(new SQM());
 
 #define UNIT_TAB    "Unit"
-#define SQM_TIMEOUT 3
-#define POLLMS      1000
 
 void ISGetProperties(const char *dev)
 {
     sqm->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    sqm->ISNewSwitch(dev, name, states, names, num);
+    sqm->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    sqm->ISNewText(dev, name, texts, names, num);
+    sqm->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    sqm->ISNewNumber(dev, name, values, names, num);
+    sqm->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -80,10 +79,6 @@ SQM::SQM()
     setVersion(1, 0);
 }
 
-SQM::~SQM()
-{
-}
-
 bool SQM::initProperties()
 {
     INDI::DefaultDevice::initProperties();
@@ -104,12 +99,24 @@ bool SQM::initProperties()
     IUFillNumber(&UnitInfoN[3], "Serial", "", "%.f", 0, 1000000, 0, 0);
     IUFillNumberVector(&UnitInfoNP, UnitInfoN, 4, getDeviceName(), "Unit Info", "", UNIT_TAB, IP_RW, 0, IPS_IDLE);
 
-    tcpConnection = new Connection::TCP(this);
-    tcpConnection->setDefaultHost("192.168.1.1");
-    tcpConnection->setDefaultPort(10001);
-    tcpConnection->registerHandshake([&]() { return getDeviceInfo(); });
 
-    registerConnection(tcpConnection);
+
+    if (sqmConnection & CONNECTION_SERIAL)
+    {
+        serialConnection = new Connection::Serial(this);
+        serialConnection->registerHandshake([&]() { return getDeviceInfo(); });
+        registerConnection(serialConnection);
+    }
+
+    if (sqmConnection & CONNECTION_TCP)
+    {
+        tcpConnection = new Connection::TCP(this);
+        tcpConnection->setDefaultHost("192.168.1.1");
+        tcpConnection->setDefaultPort(10001);
+        tcpConnection->registerHandshake([&]() { return getDeviceInfo(); });
+
+        registerConnection(tcpConnection);
+    }
 
     addDebugControl();
 
@@ -140,15 +147,15 @@ bool SQM::updateProperties()
 bool SQM::getReadings()
 {
     const char *cmd = "rx";
-    char buffer[57];
+    char buffer[57]={0};
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD: %s", cmd);
+    LOGF_DEBUG("CMD: %s", cmd);
 
     ssize_t written = write(PortFD, cmd, 2);
 
     if (written < 2)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Error getting device readings: %s", strerror(errno));
+        LOGF_ERROR("Error getting device readings: %s", strerror(errno));
         return false;
     }
 
@@ -159,7 +166,7 @@ bool SQM::getReadings()
         ssize_t response = read(PortFD, buffer + received, 57 - received);
         if (response < 0)
         {
-            DEBUGF(INDI::Logger::DBG_ERROR, "Error getting device readings: %s", strerror(errno));
+            LOGF_ERROR("Error getting device readings: %s", strerror(errno));
             return false;
         }
 
@@ -168,11 +175,11 @@ bool SQM::getReadings()
 
     if (received < 57)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Error getting device readings");
+        LOG_ERROR("Error getting device readings");
         return false;
     }
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES: %s", buffer);
+    LOGF_DEBUG("RES: %s", buffer);
 
     float mpsas, period_seconds, temperature;
     int frequency, period_counts;
@@ -181,7 +188,7 @@ bool SQM::getReadings()
 
     if (rc < 5)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Failed to parse input %s", buffer);
+        LOGF_ERROR("Failed to parse input %s", buffer);
         return false;
     }
 
@@ -196,23 +203,26 @@ bool SQM::getReadings()
 
 const char *SQM::getDefaultName()
 {
-    return (char *)"SQM";
+    return (const char *)"SQM";
 }
 
 bool SQM::getDeviceInfo()
 {
     const char *cmd = "ix";
-    char buffer[39];
+    char buffer[39]={0};
 
-    PortFD = tcpConnection->getPortFD();
-
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD: %s", cmd);
+    if (getActiveConnection() == serialConnection) {
+        PortFD = serialConnection->getPortFD();
+    } else if (getActiveConnection() == tcpConnection) {
+        PortFD = tcpConnection->getPortFD();
+    }
+    LOGF_DEBUG("CMD: %s", cmd);
 
     ssize_t written = write(PortFD, cmd, 2);
 
     if (written < 2)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Error getting device info: %s", strerror(errno));
+        LOGF_ERROR("Error getting device info while writing to device: %s", strerror(errno));
         return false;
     }
 
@@ -223,7 +233,7 @@ bool SQM::getDeviceInfo()
         ssize_t response = read(PortFD, buffer + received, 39 - received);
         if (response < 0)
         {
-            DEBUGF(INDI::Logger::DBG_ERROR, "Error getting device info: %s", strerror(errno));
+            LOGF_ERROR("Error getting device info while reading response: %s", strerror(errno));
             return false;
         }
 
@@ -232,18 +242,18 @@ bool SQM::getDeviceInfo()
 
     if (received < 39)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Error getting device info");
+        LOG_ERROR("Error getting device info");
         return false;
     }
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES: %s", buffer);
+    LOGF_DEBUG("RES: %s", buffer);
 
     int protocol, model, feature, serial;
     int rc = sscanf(buffer, "i,%d,%d,%d,%d", &protocol, &model, &feature, &serial);
 
     if (rc < 4)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Failed to parse input %s", buffer);
+        LOGF_ERROR("Failed to parse input %s", buffer);
         return false;
     }
 
@@ -257,7 +267,7 @@ bool SQM::getDeviceInfo()
 
 void SQM::TimerHit()
 {
-    if (isConnected() == false)
+    if (!isConnected())
         return;
 
     bool rc = getReadings();

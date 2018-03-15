@@ -23,12 +23,11 @@
 
 #include "indicom.h"
 
-#include <math.h>
+#include <cmath>
 #include <memory>
 
 //const float SIDE_RATE = 0.004178; /* sidereal rate, degrees/s */
 const int SLEW_RATE = 1;        /* slew rate, degrees/s */
-const int POLLMS    = 250;      /* poll period, ms */
 
 std::unique_ptr<SimpleScope> simpleScope(new SimpleScope());
 
@@ -106,24 +105,12 @@ bool SimpleScope::initProperties()
 }
 
 /**************************************************************************************
-** Client is asking us to establish connection to the device
+** INDI is asking us to check communication with the device via a handshake
 ***************************************************************************************/
-bool SimpleScope::Connect()
+bool SimpleScope::Handshake()
 {
-    DEBUG(INDI::Logger::DBG_SESSION, "Simple Scope connected successfully!");
-
-    // Let's set a timer that checks telescopes status every POLLMS milliseconds.
-    SetTimer(POLLMS);
-
-    return true;
-}
-
-/**************************************************************************************
-** Client is asking us to terminate connection to the device
-***************************************************************************************/
-bool SimpleScope::Disconnect()
-{
-    DEBUG(INDI::Logger::DBG_SESSION, "Simple Scope disconnected successfully!");
+    // When communicating with a real mount, we check here if commands are receieved
+    // and acknolowedged by the mount. For SimpleScope, we simply return true.
     return true;
 }
 
@@ -142,7 +129,7 @@ bool SimpleScope::Goto(double ra, double dec)
 {
     targetRA  = ra;
     targetDEC = dec;
-    char RAStr[64], DecStr[64];
+    char RAStr[64]={0}, DecStr[64]={0};
 
     // Parse the RA/DEC into strings
     fs_sexa(RAStr, targetRA, 2, 3600);
@@ -152,7 +139,7 @@ bool SimpleScope::Goto(double ra, double dec)
     TrackState = SCOPE_SLEWING;
 
     // Inform client we are slewing to a new position
-    DEBUGF(INDI::Logger::DBG_SESSION, "Slewing to RA: %s - DEC: %s", RAStr, DecStr);
+    LOGF_INFO("Slewing to RA: %s - DEC: %s", RAStr, DecStr);
 
     // Success!
     return true;
@@ -165,13 +152,14 @@ bool SimpleScope::Abort()
 {
     return true;
 }
+
 /**************************************************************************************
 ** Client is asking us to report telescope status
 ***************************************************************************************/
 bool SimpleScope::ReadScopeStatus()
 {
-    static struct timeval ltv;
-    struct timeval tv;
+    static struct timeval ltv { 0, 0 };
+    struct timeval tv { 0, 0 };
     double dt = 0, da_ra = 0, da_dec = 0, dx = 0, dy = 0;
     int nlocked;
 
@@ -233,7 +221,7 @@ bool SimpleScope::ReadScopeStatus()
                 // Let's set state to TRACKING
                 TrackState = SCOPE_TRACKING;
 
-                DEBUG(INDI::Logger::DBG_SESSION, "Telescope slew is complete. Tracking...");
+                LOG_INFO("Telescope slew is complete. Tracking...");
             }
             break;
 
@@ -241,7 +229,7 @@ bool SimpleScope::ReadScopeStatus()
             break;
     }
 
-    char RAStr[64], DecStr[64];
+    char RAStr[64]={0}, DecStr[64]={0};
 
     // Parse the RA/DEC into strings
     fs_sexa(RAStr, currentRA, 2, 3600);

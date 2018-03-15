@@ -6,12 +6,15 @@
 
 #include "DriverCommon.h"
 
+#include <libnova/julian_day.h>
+
+#include <gsl/gsl_blas.h>
+#include <gsl/gsl_permutation.h>
+#include <gsl/gsl_linalg.h>
+
 #include <limits>
 #include <iostream>
 #include <map>
-#include <gsl/gsl_permutation.h>
-#include <gsl/gsl_linalg.h>
-#include <gsl/gsl_blas.h>
 
 namespace INDI
 {
@@ -130,7 +133,7 @@ bool BasicMathPlugin::Initialise(InMemoryDatabase *pInMemoryDatabase)
             RaDec2.dec = Entry2.Declination;
             // libnova works in decimal degrees so conversion is needed here
             RaDec2.ra = Entry2.RightAscension * 360.0 / 24.0;
-            ln_lnlat_posn Position;
+            ln_lnlat_posn Position { 0, 0 };
             if (!pInMemoryDatabase->GetDatabaseReferencePosition(Position))
                 return false;
             ln_get_hrz_from_equ(&RaDec1, &Position, Entry1.ObservationJulianDate, &ActualSyncPoint1);
@@ -177,7 +180,7 @@ bool BasicMathPlugin::Initialise(InMemoryDatabase *pInMemoryDatabase)
             RaDec3.dec = Entry3.Declination;
             // libnova works in decimal degrees so conversion is needed here
             RaDec3.ra = Entry3.RightAscension * 360.0 / 24.0;
-            ln_lnlat_posn Position;
+            ln_lnlat_posn Position { 0, 0 };
             if (!pInMemoryDatabase->GetDatabaseReferencePosition(Position))
                 return false;
             ln_get_hrz_from_equ(&RaDec1, &Position, Entry1.ObservationJulianDate, &ActualSyncPoint1);
@@ -200,7 +203,7 @@ bool BasicMathPlugin::Initialise(InMemoryDatabase *pInMemoryDatabase)
 
         default:
         {
-            ln_lnlat_posn Position;
+            ln_lnlat_posn Position { 0, 0 };
             if (!pInMemoryDatabase->GetDatabaseReferencePosition(Position))
                 return false;
 
@@ -339,7 +342,7 @@ bool BasicMathPlugin::TransformCelestialToTelescope(const double RightAscension,
     // libnova works in decimal degrees so conversion is needed here
     ActualRaDec.ra  = RightAscension * 360.0 / 24.0;
     ActualRaDec.dec = Declination;
-    ln_lnlat_posn Position;
+    ln_lnlat_posn Position { 0, 0 };
 
     if ((nullptr == pInMemoryDatabase) ||
         !pInMemoryDatabase->GetDatabaseReferencePosition(

@@ -23,12 +23,10 @@
 #define VERSION    0
 #define SUBVERSION 2
 
-#define OPTEC_MAX_RETRIES      2
 #define OPTEC_TIMEOUT          5
 #define OPTEC_TIMEOUT_MOVE     10
 #define OPTEC_TIMEOUT_WHOME    40
 #define OPTEC_TIMEOUT_FIRMWARE 1
-#define OPTEC_MAXBUF           16
 
 #define OPTEC_MAX_FILTER   9
 #define OPTEC_LEN_FLTNAME  8
@@ -44,7 +42,7 @@
 #define filterSim9 "RED     GREEN   BLUE    H-ALPHA LIGHT   OIII    IR-CUT  SII     ORANGE  "
 
 /*******************************************************************************
-Define text message error from IFW
+  Define text message error from IFW
 *******************************************************************************/
 #define MER1 "the number of steps to find position 1 is excessive"
 #define MER2 "the SBIG pulse does not have the proper width for the IFW"
@@ -56,19 +54,19 @@ Define text message error from IFW
 
 #define PRINT_ER(error)                                           \
     if (!strcmp(error, "ER=1"))                                   \
-        DEBUGF(INDI::Logger::DBG_ERROR, "%s -> %s", error, MER1); \
+        LOGF_ERROR("%s -> %s", error, MER1); \
     else if (!strcmp(error, "ER=2"))                              \
-        DEBUGF(INDI::Logger::DBG_ERROR, "%s -> %s", error, MER2); \
+        LOGF_ERROR("%s -> %s", error, MER2); \
     else if (!strcmp(error, "ER=3"))                              \
-        DEBUGF(INDI::Logger::DBG_ERROR, "%s -> %s", error, MER3); \
+        LOGF_ERROR("%s -> %s", error, MER3); \
     else if (!strcmp(error, "ER=4"))                              \
-        DEBUGF(INDI::Logger::DBG_ERROR, "%s -> %s", error, MER4); \
+        LOGF_ERROR("%s -> %s", error, MER4); \
     else if (!strcmp(error, "ER=5"))                              \
-        DEBUGF(INDI::Logger::DBG_ERROR, "%s -> %s", error, MER5); \
+        LOGF_ERROR("%s -> %s", error, MER5); \
     else if (!strcmp(error, "ER=6"))                              \
-        DEBUGF(INDI::Logger::DBG_ERROR, "%s -> %s", error, MER6); \
+        LOGF_ERROR("%s -> %s", error, MER6); \
     else if (!strcmp(error, "ER=0"))                              \
-        DEBUGF(INDI::Logger::DBG_ERROR, "%s -> %s", error, MERO);
+        LOGF_ERROR("%s -> %s", error, MERO);
 
 #define DEBUGTAG() DEBUGF(INDI::Logger::DBG_EXTRA_1, "DEBUG -> Function %s() is executing", __FUNCTION__);
 
@@ -80,7 +78,7 @@ class FilterIFW : public INDI::FilterWheel
   private:
   public:
     FilterIFW();
-    virtual ~FilterIFW();
+    virtual ~FilterIFW() = default;
 
     virtual bool initProperties() override;
     virtual bool ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n) override;
@@ -100,7 +98,7 @@ class FilterIFW : public INDI::FilterWheel
     virtual void simulationTriggered(bool enable) override;
     virtual bool loadConfig(bool silent = false, const char *property = nullptr) override;
     virtual bool SetFilterNames() override;
-    virtual bool GetFilterNames(const char *groupName) override;
+    virtual bool GetFilterNames() override;
     bool GetWheelID();
     int GetFilterPos();
     bool GetFirmware();
@@ -126,11 +124,8 @@ class FilterIFW : public INDI::FilterWheel
     IText FirmwareT[1];
 
     //Filter position in simulation mode
-    int actualSimFilter = 1;
+    int actualSimFilter { 1 };
 
     // Filter name list for simulation
     char filterSim[OPTEC_MAXLEN_NAMES + 1];
-
-    // Filterwheel has been changed
-    bool isWheelChanged = true;
 };

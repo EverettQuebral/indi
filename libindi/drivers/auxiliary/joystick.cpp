@@ -23,11 +23,10 @@
 #include "joystick.h"
 
 #include "joystickdriver.h"
+#include "indistandardproperty.h"
 
 #include <memory>
-#include <string.h>
-
-#define POLLMS 250
+#include <cstring>
 
 // We declare an auto pointer to joystick.
 std::unique_ptr<JoyStick> joystick(new JoyStick());
@@ -37,19 +36,19 @@ void ISGetProperties(const char *dev)
     joystick->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    joystick->ISNewSwitch(dev, name, states, names, num);
+    joystick->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    joystick->ISNewText(dev, name, texts, names, num);
+    joystick->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    joystick->ISNewNumber(dev, name, values, names, num);
+    joystick->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -72,23 +71,16 @@ void ISSnoopDevice(XMLEle *root)
 JoyStick::JoyStick()
 {
     driver = new JoyStickDriver();
-
-    JoyStickNP = nullptr;
-    JoyStickN  = nullptr;
-    AxisN      = nullptr;
-    ButtonS    = nullptr;
 }
 
 JoyStick::~JoyStick()
 {
-    //dtor
-
     delete (driver);
 }
 
 const char *JoyStick::getDefaultName()
 {
-    return (char *)"Joystick";
+    return (const char *)"Joystick";
 }
 
 bool JoyStick::Connect()
@@ -97,26 +89,26 @@ bool JoyStick::Connect()
 
     if (rc)
     {
-        IDMessage(getDeviceName(), "Joystick is online.");
+        LOG_INFO("Joystick is online.");
 
         setupParams();
     }
     else
-        IDMessage(getDeviceName(), "Error: cannot find Joystick device.");
+        LOG_INFO("Error: cannot find Joystick device.");
 
     return rc;
 }
 
 bool JoyStick::Disconnect()
 {
-    IDMessage(getDeviceName(), "Joystick is offline.");
+    LOG_INFO("Joystick is offline.");
 
     return driver->Disconnect();
 }
 
 void JoyStick::setupParams()
 {
-    char propName[16], propLabel[16];
+    char propName[16]={0}, propLabel[16]={0};
 
     if (driver == nullptr)
         return;
@@ -170,7 +162,7 @@ bool JoyStick::initProperties()
     INDI::DefaultDevice::initProperties();
 
     IUFillText(&PortT[0], "PORT", "Port", "/dev/input/js0");
-    IUFillTextVector(&PortTP, PortT, 1, getDeviceName(), "DEVICE_PORT", "Ports", OPTIONS_TAB, IP_RW, 60, IPS_IDLE);
+    IUFillTextVector(&PortTP, PortT, 1, getDeviceName(), INDI::SP::DEVICE_PORT, "Ports", OPTIONS_TAB, IP_RW, 60, IPS_IDLE);
 
     IUFillText(&JoystickInfoT[0], "JOYSTICK_NAME", "Name", "");
     IUFillText(&JoystickInfoT[1], "JOYSTICK_VERSION", "Version", "");
@@ -246,8 +238,9 @@ void JoyStick::ISGetProperties(const char *dev)
     INDI::DefaultDevice::ISGetProperties(dev);
 
     defineText(&PortTP);
-    loadConfig(true, "DEVICE_PORT");
+    loadConfig(true, INDI::SP::DEVICE_PORT);
 
+    /*
     if (isConnected())
     {
         for (int i = 0; i < driver->getNumOfJoysticks(); i++)
@@ -256,6 +249,7 @@ void JoyStick::ISGetProperties(const char *dev)
         defineNumber(&AxisNP);
         defineSwitch(&ButtonSP);
     }
+    */
 }
 
 bool JoyStick::ISSnoopDevice(XMLEle *root)
@@ -265,7 +259,7 @@ bool JoyStick::ISSnoopDevice(XMLEle *root)
 
 bool JoyStick::ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (strcmp(name, PortTP.name) == 0)
         {
@@ -300,11 +294,10 @@ void JoyStick::axisHelper(int axis_n, int value)
 
 void JoyStick::joystickEvent(int joystick_n, double mag, double angle)
 {
-    if (isConnected() == false)
+    if (!isConnected())
         return;
 
-    if (isDebug())
-        IDLog("joystickEvent[%d]: %g @ %g\n", joystick_n, mag, angle);
+    LOGF_DEBUG("joystickEvent[%d]: %g @ %g", joystick_n, mag, angle);
 
     if (mag == 0)
         JoyStickNP[joystick_n].s = IPS_IDLE;
@@ -319,11 +312,10 @@ void JoyStick::joystickEvent(int joystick_n, double mag, double angle)
 
 void JoyStick::axisEvent(int axis_n, int value)
 {
-    if (isConnected() == false)
+    if (!isConnected())
         return;
 
-    if (isDebug())
-        IDLog("axisEvent[%d]: %d\n", axis_n, value);
+    LOGF_DEBUG("axisEvent[%d]: %d", axis_n, value);
 
     if (value == 0)
         AxisNP.s = IPS_IDLE;
@@ -337,11 +329,10 @@ void JoyStick::axisEvent(int axis_n, int value)
 
 void JoyStick::buttonEvent(int button_n, int value)
 {
-    if (isConnected() == false)
+    if (!isConnected())
         return;
 
-    if (isDebug())
-        IDLog("buttonEvent[%d]: %s\n", button_n, value > 0 ? "On" : "Off");
+    LOGF_DEBUG("buttonEvent[%d]: %s", button_n, value > 0 ? "On" : "Off");
 
     ButtonSP.s          = IPS_OK;
     ButtonS[button_n].s = (value == 0) ? ISS_OFF : ISS_ON;

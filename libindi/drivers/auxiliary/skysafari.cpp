@@ -23,22 +23,22 @@
 
   The full GNU General Public License is included in this distribution in the
   file called LICENSE.
-*******************************************************************************/#include "skysafari.h"
+*******************************************************************************/
+#include "skysafari.h"
 #include "skysafariclient.h"
 
 #include "indicom.h"
 
-#include <libnova.h>
+#include <libnova/julian_day.h>
+
+#include <cerrno>
+#include <cstring>
+#include <memory>
 
 #include <fcntl.h>
-#include <memory>
-#include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <sys/errno.h>
 #include <sys/socket.h>
-
-#define POLLMS 100
 
 // We declare unique pointer to my lovely German Shephard Tommy (http://indilib.org/images/juli_tommy.jpg)
 std::unique_ptr<SkySafari> tommyGoodBoy(new SkySafari());
@@ -48,19 +48,19 @@ void ISGetProperties(const char *dev)
     tommyGoodBoy->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    tommyGoodBoy->ISNewSwitch(dev, name, states, names, num);
+    tommyGoodBoy->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    tommyGoodBoy->ISNewText(dev, name, texts, names, num);
+    tommyGoodBoy->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    tommyGoodBoy->ISNewNumber(dev, name, values, names, num);
+    tommyGoodBoy->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -95,7 +95,7 @@ SkySafari::~SkySafari()
 
 const char *SkySafari::getDefaultName()
 {
-    return (char *)"SkySafari";
+    return (const char *)"SkySafari";
 }
 
 bool SkySafari::Connect()
@@ -137,6 +137,8 @@ bool SkySafari::initProperties()
 
     addDebugControl();
 
+    setDefaultPollingPeriod(100);
+
     return true;
 }
 
@@ -157,7 +159,7 @@ void SkySafari::ISGetProperties(const char *dev)
 
 bool SkySafari::ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (!strcmp(SettingsTP.name, name))
         {
@@ -186,7 +188,7 @@ bool SkySafari::ISNewNumber(const char *dev, const char *name, double values[], 
 
 bool SkySafari::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (!strcmp(ServerControlSP.name, name))
         {
@@ -241,7 +243,7 @@ bool SkySafari::saveConfigItems(FILE *fp)
 
 void SkySafari::TimerHit()
 {
-    if (isConnected() == false)
+    if (!isConnected())
         return;
 
     if (clientFD == -1)
@@ -261,7 +263,7 @@ void SkySafari::TimerHit()
         }
         else if (cli_fd < 0)
         {
-            DEBUGF(INDI::Logger::DBG_ERROR, "Failed to connect to SkySafari. %s", strerror(errno));
+            LOGF_ERROR("Failed to connect to SkySafari. %s", strerror(errno));
             SetTimer(POLLMS);
             return;
         }
@@ -272,19 +274,19 @@ void SkySafari::TimerHit()
         // Get socket flags
         if ((flags = fcntl(clientFD, F_GETFL, 0)) < 0)
         {
-            DEBUGF(INDI::Logger::DBG_ERROR, "Error connecting to SkySafari. F_GETFL: %s", strerror(errno));
+            LOGF_ERROR("Error connecting to SkySafari. F_GETFL: %s", strerror(errno));
         }
 
         // Set to Non-Blocking
         if (fcntl(clientFD, F_SETFL, flags | O_NONBLOCK) < 0)
         {
-            DEBUGF(INDI::Logger::DBG_ERROR, "Error connecting to SkySafari. F_SETFL: %s", strerror(errno));
+            LOGF_ERROR("Error connecting to SkySafari. F_SETFL: %s", strerror(errno));
         }
 
         // Only show message first time SkySafari connects
         if (isSkySafariConnected == false)
         {
-            DEBUG(INDI::Logger::DBG_SESSION, "Connected to SkySafari.");
+            LOG_INFO("Connected to SkySafari.");
             isSkySafariConnected = true;
         }
     }
@@ -306,7 +308,7 @@ void SkySafari::TimerHit()
         // EOF
         else if (rc == 0)
         {
-            //DEBUG(INDI::Logger::DBG_ERROR, "SkySafari Disconnected? Reconnect again.");
+            //LOG_ERROR("SkySafari Disconnected? Reconnect again.");
             close(clientFD);
             clientFD = -1;
         }
@@ -327,20 +329,20 @@ bool SkySafari::startServer()
     /* make socket endpoint */
     if ((sfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Error starting server. socket: %s", strerror(errno));
+        LOGF_ERROR("Error starting server. socket: %s", strerror(errno));
         return false;
     }
 
     // Get socket flags
     if ((flags = fcntl(sfd, F_GETFL, 0)) < 0)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Error starting server. F_GETFL: %s", strerror(errno));
+        LOGF_ERROR("Error starting server. F_GETFL: %s", strerror(errno));
     }
 
     // Set to Non-Blocking
     if (fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Error starting server. F_SETFL: %s", strerror(errno));
+        LOGF_ERROR("Error starting server. F_SETFL: %s", strerror(errno));
     }
 
     /* bind to given port for any IP address */
@@ -350,20 +352,20 @@ bool SkySafari::startServer()
     serv_socket.sin_port        = htons((unsigned short)atoi(SettingsT[SKYSAFARI_PORT].text));
     if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Error starting server. setsockopt: %s", strerror(errno));
+        LOGF_ERROR("Error starting server. setsockopt: %s", strerror(errno));
         return false;
     }
 
     if (::bind(sfd, (struct sockaddr *)&serv_socket, sizeof(serv_socket)) < 0)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Error starting server. bind: %s", strerror(errno));
+        LOGF_ERROR("Error starting server. bind: %s", strerror(errno));
         return false;
     }
 
     /* willing to accept connections with a backlog of 5 pending */
     if (listen(sfd, 5) < 0)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Error starting server. listen: %s", strerror(errno));
+        LOGF_ERROR("Error starting server. listen: %s", strerror(errno));
         return false;
     }
 
@@ -387,11 +389,11 @@ bool SkySafari::stopServer()
 
 void SkySafari::processCommand(std::string cmd)
 {
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD <%s>", cmd.c_str());
+    LOGF_DEBUG("CMD <%s>", cmd.c_str());
 
     if (skySafariClient->isConnected() == false)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Internal client is not connected! Restart driver and try again.");
+        LOG_ERROR("Internal client is not connected! Please make sure the mount name is set in the Options tab. Disconnect and reconnect to try again.");
         return;
     }
 
@@ -437,7 +439,7 @@ void SkySafari::processCommand(std::string cmd)
         if (sscanf(cmd.c_str(), "SG%d", &ofs) == 1)
         {
             ofs = -ofs;
-            DEBUGF(INDI::Logger::DBG_DEBUG, "UTC Offset: %d", ofs);
+            LOGF_DEBUG("UTC Offset: %d", ofs);
 
             timeUTCOffset = ofs;
             haveUTCoffset = true;
@@ -455,7 +457,7 @@ void SkySafari::processCommand(std::string cmd)
         int hh, mm, ss;
         if (sscanf(cmd.c_str(), "SL%d:%d:%d", &hh, &mm, &ss) == 3)
         {
-            DEBUGF(INDI::Logger::DBG_DEBUG, "TIME : %02d:%02d:%02d", hh, mm, ss);
+            LOGF_DEBUG("TIME : %02d:%02d:%02d", hh, mm, ss);
 
             timeHour    = hh;
             timeMin     = mm;
@@ -475,7 +477,7 @@ void SkySafari::processCommand(std::string cmd)
         int yyyy, mm, dd;
         if (sscanf(cmd.c_str(), "SC%d/%d/%d", &mm, &dd, &yyyy) == 3)
         {
-            DEBUGF(INDI::Logger::DBG_DEBUG, "DATE : %02d-%02d-%02d", yyyy, mm, dd);
+            LOGF_DEBUG("DATE : %02d-%02d-%02d", yyyy, mm, dd);
 
             timeYear    = yyyy;
             timeMonth   = mm;
@@ -495,7 +497,7 @@ void SkySafari::processCommand(std::string cmd)
         INumberVectorProperty *eqCoordsNP = skySafariClient->getEquatorialCoords();
         if (eqCoordsNP == nullptr)
         {
-            DEBUG(INDI::Logger::DBG_WARNING, "Unable to communicate with mount, is mount turned on and connected?");
+            LOG_WARN("Unable to communicate with mount, is mount turned on and connected?");
             return;
         }
 
@@ -511,7 +513,7 @@ void SkySafari::processCommand(std::string cmd)
         INumberVectorProperty *eqCoordsNP = skySafariClient->getEquatorialCoords();
         if (eqCoordsNP == nullptr)
         {
-            DEBUG(INDI::Logger::DBG_WARNING, "Unable to communicate with mount, is mount turned on and connected?");
+            LOG_WARN("Unable to communicate with mount, is mount turned on and connected?");
             return;
         }
         int dd, mm, ss;
@@ -538,7 +540,9 @@ void SkySafari::processCommand(std::string cmd)
         int dd = 0, mm = 0, ss = 0;
         if (sscanf(cmd.c_str(), "Sd%d*%d:%d", &dd, &mm, &ss) == 3)
         {
-            DE = dd + mm / 60.0 + ss / 3600.0;
+            DE = abs(dd) + mm / 60.0 + ss / 3600.0;
+            if (dd < 0)
+                DE *= -1;
         }
 
         // Always respond with valid
@@ -734,7 +738,7 @@ void SkySafari::sendGeographicCoords()
 
 bool SkySafari::sendSkySafari(const char *message)
 {
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES <%s>", message);
+    LOGF_DEBUG("RES <%s>", message);
 
     int bytesWritten = 0, totalBytes = strlen(message);
 
@@ -745,7 +749,7 @@ bool SkySafari::sendSkySafari(const char *message)
             bytesWritten += bytesSent;
         else
         {
-            DEBUGF(INDI::Logger::DBG_ERROR, "Error writing to SkySafari. %s", strerror(errno));
+            LOGF_ERROR("Error writing to SkySafari. %s", strerror(errno));
             return false;
         }
     }
@@ -775,8 +779,8 @@ void SkySafari::sendUTCtimedate()
 
         ln_zonedate_to_date(&zonedate, &utcdate);
 
-        char bufDT[32];
-        char bufOff[8];
+        char bufDT[32]={0};
+        char bufOff[8]={0};
 
         snprintf(bufDT, 32, "%04d-%02d-%02dT%02d:%02d:%02d", utcdate.years, utcdate.months, utcdate.days, utcdate.hours,
                  utcdate.minutes, (int)(utcdate.seconds));
@@ -785,7 +789,7 @@ void SkySafari::sendUTCtimedate()
         IUSaveText(IUFindText(timeUTC, "UTC"), bufDT);
         IUSaveText(IUFindText(timeUTC, "OFFSET"), bufOff);
 
-        DEBUGF(INDI::Logger::DBG_DEBUG, "send to timedate. %s, %s", bufDT, bufOff);
+        LOGF_DEBUG("send to timedate. %s, %s", bufDT, bufOff);
 
         skySafariClient->setTimeUTC();
 
@@ -795,21 +799,13 @@ void SkySafari::sendUTCtimedate()
 }
 
 // Had to get this from stackoverflow, why C++ STL lacks such basic functionality?!!!
-template <typename Out>
-void SkySafari::split(const std::string &s, char delim, Out result)
-{
-    std::stringstream ss;
-    ss.str(s);
-    std::string item;
-    while (std::getline(ss, item, delim))
-    {
-        *(result++) = item;
+std::vector<std::string> SkySafari::split(const std::string &text, char sep) {
+    std::vector<std::string> tokens;
+    std::size_t start = 0, end = 0;
+    while ((end = text.find(sep, start)) != std::string::npos) {
+        tokens.push_back(text.substr(start, end - start));
+        start = end + 1;
     }
-}
-
-std::vector<std::string> SkySafari::split(const std::string &s, char delim)
-{
-    std::vector<std::string> elems;
-    split(s, delim, std::back_inserter(elems));
-    return elems;
+    tokens.push_back(text.substr(start));
+    return tokens;
 }

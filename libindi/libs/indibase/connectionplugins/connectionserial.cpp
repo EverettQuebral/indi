@@ -17,14 +17,13 @@
 *******************************************************************************/
 
 #include "connectionserial.h"
-
+#include "indistandardproperty.h"
 #include "indicom.h"
 #include "indilogger.h"
 
 #include <dirent.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/errno.h>
+#include <cerrno>
+#include <cstring>
 
 namespace Connection
 {
@@ -37,12 +36,12 @@ Serial::Serial(INDI::DefaultDevice *dev) : Interface(dev)
 #else
     IUFillText(&PortT[0], "PORT", "Port", "/dev/ttyUSB0");
 #endif
-    IUFillTextVector(&PortTP, PortT, 1, dev->getDeviceName(), "DEVICE_PORT", "Ports", CONNECTION_TAB, IP_RW, 60,
+    IUFillTextVector(&PortTP, PortT, 1, dev->getDeviceName(), INDI::SP::DEVICE_PORT, "Ports", CONNECTION_TAB, IP_RW, 60,
                      IPS_IDLE);
 
     IUFillSwitch(&AutoSearchS[0], "ENABLED", "Enabled", ISS_ON);
     IUFillSwitch(&AutoSearchS[1], "DISABLED", "Disabled", ISS_OFF);
-    IUFillSwitchVector(&AutoSearchSP, AutoSearchS, 2, dev->getDeviceName(), "DEVICE_AUTO_SEARCH", "Auto Search",
+    IUFillSwitchVector(&AutoSearchSP, AutoSearchS, 2, dev->getDeviceName(), INDI::SP::DEVICE_AUTO_SEARCH, "Auto Search",
                        CONNECTION_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
 
     IUFillSwitch(&RefreshS[0], "Scan Ports", "Scan Ports", ISS_OFF);
@@ -55,7 +54,7 @@ Serial::Serial(INDI::DefaultDevice *dev) : Interface(dev)
     IUFillSwitch(&BaudRateS[3], "57600", "", ISS_OFF);
     IUFillSwitch(&BaudRateS[4], "115200", "", ISS_OFF);
     IUFillSwitch(&BaudRateS[5], "230400", "", ISS_OFF);
-    IUFillSwitchVector(&BaudRateSP, BaudRateS, 6, dev->getDeviceName(), "DEVICE_BAUD_RATE", "Baud Rate", CONNECTION_TAB,
+    IUFillSwitchVector(&BaudRateSP, BaudRateS, 6, dev->getDeviceName(), INDI::SP::DEVICE_BAUD_RATE, "Baud Rate", CONNECTION_TAB,
                        IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
 }
 
@@ -102,11 +101,11 @@ bool Serial::ISNewSwitch(const char *dev, const char *name, ISState *states, cha
 
             // Only display message if there is an actual change
             if (wasEnabled == false && AutoSearchS[0].s == ISS_ON)
-                DEBUG(INDI::Logger::DBG_SESSION, "Auto search is enabled. When connecting, the driver shall attempt to "
+                LOG_INFO("Auto search is enabled. When connecting, the driver shall attempt to "
                                                  "communicate with all available system ports until a connection is "
                                                  "established.");
             else if (wasEnabled && AutoSearchS[1].s == ISS_ON)
-                DEBUG(INDI::Logger::DBG_SESSION, "Auo search is disabled.");
+                LOG_INFO("Auo search is disabled.");
             IDSetSwitch(&AutoSearchSP, nullptr);
 
             return true;
@@ -151,11 +150,11 @@ bool Serial::Connect()
     // Start auto-search if option was selected and IF we have system ports to try connecting to
     if (rc == false && AutoSearchS[0].s == ISS_ON && SystemPortS != nullptr)
     {
-        DEBUGF(INDI::Logger::DBG_WARNING, "Communication with %s @ %d failed. Starting Auto Search...", PortT[0].text,
+        LOGF_WARN("Communication with %s @ %d failed. Starting Auto Search...", PortT[0].text,
                baud);
         for (int i = 0; i < SystemPortSP.nsp; i++)
         {
-            DEBUGF(INDI::Logger::DBG_DEBUG, "Trying connection to %s @ %d ...", SystemPortS[i].name, baud);
+            LOGF_DEBUG("Trying connection to %s @ %d ...", SystemPortS[i].name, baud);
             if (Connect(SystemPortS[i].name, baud))
             {
                 IUSaveText(&PortT[0], SystemPortS[i].name);
@@ -174,16 +173,16 @@ bool Serial::Connect()
 
 bool Serial::processHandshake()
 {
-    DEBUG(INDI::Logger::DBG_DEBUG, "Connection successful, attempting handshake...");
+    LOG_DEBUG("Connection successful, attempting handshake...");
     bool rc = Handshake();
     if (rc)
     {
-        DEBUGF(INDI::Logger::DBG_SESSION, "%s is online.", getDeviceName());
-        device->saveConfig(true, "DEVICE_PORT");
-        device->saveConfig(true, "DEVICE_BAUD_RATE");
+        LOGF_INFO("%s is online.", getDeviceName());
+        device->saveConfig(true, INDI::SP::DEVICE_PORT);
+        device->saveConfig(true, INDI::SP::DEVICE_BAUD_RATE);
     }
     else
-        DEBUG(INDI::Logger::DBG_DEBUG, "Handshake failed.");
+        LOG_DEBUG("Handshake failed.");
 
     return rc;
 }
@@ -196,18 +195,18 @@ bool Serial::Connect(const char *port, uint32_t baud)
     int connectrc = 0;
     char errorMsg[MAXRBUF];
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "Connecting to %s", port);
+    LOGF_DEBUG("Connecting to %s", port);
 
-    if ((connectrc = tty_connect(port, baud, 8, 0, 1, &PortFD)) != TTY_OK)
+    if ((connectrc = tty_connect(port, baud, wordSize, parity, stopBits, &PortFD)) != TTY_OK)
     {
         tty_error_msg(connectrc, errorMsg, MAXRBUF);
 
-        DEBUGF(INDI::Logger::DBG_ERROR, "Failed to connect to port (%s). Error: %s", port, errorMsg);
+        LOGF_ERROR("Failed to connect to port (%s). Error: %s", port, errorMsg);
 
         return false;
     }
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "Port FD %d", PortFD);
+    LOGF_DEBUG("Port FD %d", PortFD);
 
     return true;
 }
@@ -225,13 +224,13 @@ bool Serial::Disconnect()
 void Serial::Activated()
 {
     device->defineText(&PortTP);
-    device->loadConfig(true, "DEVICE_PORT");
+    device->loadConfig(true, INDI::SP::DEVICE_PORT);
 
     device->defineSwitch(&BaudRateSP);
-    device->loadConfig(true, "DEVICE_BAUD_RATE");
+    device->loadConfig(true, INDI::SP::DEVICE_BAUD_RATE);
 
     device->defineSwitch(&AutoSearchSP);
-    device->loadConfig(true, "DEVICE_AUTO_SEARCH");
+    device->loadConfig(true, INDI::SP::DEVICE_AUTO_SEARCH);
 
     device->defineSwitch(&RefreshSP);
     Refresh(true);
@@ -306,8 +305,8 @@ bool Serial::Refresh(bool silent)
     int devCount = scandir("/dev", &namelist, dev_file_select, alphasort);
     if (devCount < 0)
     {
-        if (silent == false)
-            DEBUGF(INDI::Logger::DBG_ERROR, "Failed to scan directory /dev. Error: %s", strerror(errno));
+        if (!silent)
+            LOGF_ERROR("Failed to scan directory /dev. Error: %s", strerror(errno));
     }
     else
     {
@@ -321,7 +320,7 @@ bool Serial::Refresh(bool silent)
             }
             else
             {
-                DEBUGF(INDI::Logger::DBG_DEBUG, "Ignoring devices over %d : %s", m_Ports.size(),
+                LOGF_DEBUG("Ignoring devices over %d : %s", m_Ports.size(),
                        namelist[devCount]->d_name);
             }
             free(namelist[devCount]);
@@ -333,14 +332,14 @@ bool Serial::Refresh(bool silent)
 
     if (pCount == 0)
     {
-        if (silent == false)
-            DEBUG(INDI::Logger::DBG_WARNING, "No candidate ports found on the system.");
+        if (!silent)
+            LOG_WARN("No candidate ports found on the system.");
         return false;
     }
     else
     {
-        if (silent == false)
-            DEBUGF(INDI::Logger::DBG_SESSION, "Scan complete. Found %d port(s).", pCount);
+        if (!silent)
+            LOGF_INFO("Scan complete. Found %d port(s).", pCount);
     }
 
     SystemPortS = new ISwitch[pCount];

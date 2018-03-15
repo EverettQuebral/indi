@@ -52,7 +52,7 @@ class INDI::BaseClientQt : public QObject, public INDI::BaseMediator
     Q_OBJECT
 
   public:
-    BaseClientQt();
+    BaseClientQt(QObject *parent = Q_NULLPTR);
     virtual ~BaseClientQt();
 
     /** \brief Set the server host name and port
@@ -84,6 +84,8 @@ class INDI::BaseClientQt : public QObject, public INDI::BaseMediator
     */
     bool disconnectServer();
 
+    bool isServerConnected() const;
+
     /** \brief Connect to INDI driver
         \param deviceName Name of the device to connect to.
     */
@@ -102,6 +104,23 @@ class INDI::BaseClientQt : public QObject, public INDI::BaseMediator
     /** \returns Returns a vector of all devices created in the client.
     */
     const std::vector<INDI::BaseDevice *> &getDevices() const { return cDevices; }
+
+    /**
+     * @brief getDevices Returns list of devices that belong to a particular @ref INDI::BaseDevice::DRIVER_INTERFACE "DRIVER_INTERFACE" class.
+     *
+     * For example, to get a list of guide cameras:
+     @code{.cpp}
+      std::vector<INDI::BaseDevice *> guideCameras;
+      getDevices(guideCameras, CCD_INTERFACE | GUIDE_INTERFACE);
+      for (INDI::BaseDevice *device : guideCameras)
+             cout << "Guide Camera Name: " << device->getDeviceName();
+     @endcode
+     * @param deviceList Supply device list to be filled by the function.
+     * @param driverInterface ORed DRIVER_INTERFACE values to select the desired class of devices.
+     * @return True if one or more devices are found for the supplied driverInterface, false if no matching devices found.
+
+     */
+    bool getDevices(std::vector<INDI::BaseDevice *> &deviceList, uint16_t driverInterface);
 
     /** \brief Set Binary Large Object policy mode
 

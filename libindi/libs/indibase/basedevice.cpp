@@ -21,12 +21,13 @@
 #include "base64.h"
 #include "config.h"
 #include "indicom.h"
+#include "indistandardproperty.h"
+#include "locale_compat.h"
 
-#include <locale.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
 #include <zlib.h>
-#include <sys/errno.h>
 #include <sys/stat.h>
 
 #if defined(_MSC_VER)
@@ -36,7 +37,10 @@
 #pragma warning(disable : 4996)
 #endif
 
-INDI::BaseDevice::BaseDevice()
+namespace INDI
+{
+
+BaseDevice::BaseDevice()
 {
     mediator = nullptr;
     lp       = newLilXML();
@@ -53,7 +57,7 @@ INDI::BaseDevice::BaseDevice()
     }
 }
 
-INDI::BaseDevice::~BaseDevice()
+BaseDevice::~BaseDevice()
 {
     delLilXML(lp);
     while (!pAll.empty())
@@ -65,7 +69,7 @@ INDI::BaseDevice::~BaseDevice()
     delete[] deviceID;
 }
 
-INumberVectorProperty *INDI::BaseDevice::getNumber(const char *name)
+INumberVectorProperty *BaseDevice::getNumber(const char *name)
 {
     INumberVectorProperty *nvp = nullptr;
 
@@ -74,7 +78,7 @@ INumberVectorProperty *INDI::BaseDevice::getNumber(const char *name)
     return nvp;
 }
 
-ITextVectorProperty *INDI::BaseDevice::getText(const char *name)
+ITextVectorProperty *BaseDevice::getText(const char *name)
 {
     ITextVectorProperty *tvp = nullptr;
 
@@ -83,7 +87,7 @@ ITextVectorProperty *INDI::BaseDevice::getText(const char *name)
     return tvp;
 }
 
-ISwitchVectorProperty *INDI::BaseDevice::getSwitch(const char *name)
+ISwitchVectorProperty *BaseDevice::getSwitch(const char *name)
 {
     ISwitchVectorProperty *svp = nullptr;
 
@@ -92,7 +96,7 @@ ISwitchVectorProperty *INDI::BaseDevice::getSwitch(const char *name)
     return svp;
 }
 
-ILightVectorProperty *INDI::BaseDevice::getLight(const char *name)
+ILightVectorProperty *BaseDevice::getLight(const char *name)
 {
     ILightVectorProperty *lvp = nullptr;
 
@@ -101,7 +105,7 @@ ILightVectorProperty *INDI::BaseDevice::getLight(const char *name)
     return lvp;
 }
 
-IBLOBVectorProperty *INDI::BaseDevice::getBLOB(const char *name)
+IBLOBVectorProperty *BaseDevice::getBLOB(const char *name)
 {
     IBLOBVectorProperty *bvp = nullptr;
 
@@ -110,7 +114,7 @@ IBLOBVectorProperty *INDI::BaseDevice::getBLOB(const char *name)
     return bvp;
 }
 
-IPState INDI::BaseDevice::getPropertyState(const char *name)
+IPState BaseDevice::getPropertyState(const char *name)
 {
     IPState state = IPS_IDLE;
     INDI_PROPERTY_TYPE pType;
@@ -174,7 +178,7 @@ IPState INDI::BaseDevice::getPropertyState(const char *name)
     return state;
 }
 
-IPerm INDI::BaseDevice::getPropertyPermission(const char *name)
+IPerm BaseDevice::getPropertyPermission(const char *name)
 {
     IPerm perm = IP_RO;
 
@@ -231,7 +235,7 @@ IPerm INDI::BaseDevice::getPropertyPermission(const char *name)
     return perm;
 }
 
-void *INDI::BaseDevice::getRawProperty(const char *name, INDI_PROPERTY_TYPE type)
+void *BaseDevice::getRawProperty(const char *name, INDI_PROPERTY_TYPE type)
 {
     INDI_PROPERTY_TYPE pType;
     void *pPtr = nullptr;
@@ -304,7 +308,7 @@ void *INDI::BaseDevice::getRawProperty(const char *name, INDI_PROPERTY_TYPE type
     return nullptr;
 }
 
-INDI::Property *INDI::BaseDevice::getProperty(const char *name, INDI_PROPERTY_TYPE type)
+INDI::Property *BaseDevice::getProperty(const char *name, INDI_PROPERTY_TYPE type)
 {
     INDI_PROPERTY_TYPE pType;
     void *pPtr;
@@ -378,7 +382,7 @@ INDI::Property *INDI::BaseDevice::getProperty(const char *name, INDI_PROPERTY_TY
     return nullptr;
 }
 
-int INDI::BaseDevice::removeProperty(const char *name, char *errmsg)
+int BaseDevice::removeProperty(const char *name, char *errmsg)
 {
     std::vector<INDI::Property *>::iterator orderi;
 
@@ -459,7 +463,7 @@ int INDI::BaseDevice::removeProperty(const char *name, char *errmsg)
     return INDI_PROPERTY_INVALID;
 }
 
-bool INDI::BaseDevice::buildSkeleton(const char *filename)
+bool BaseDevice::buildSkeleton(const char *filename)
 {
     char errmsg[MAXRBUF];
     FILE *fp     = nullptr;
@@ -532,7 +536,7 @@ bool INDI::BaseDevice::buildSkeleton(const char *filename)
     /**************************************************************************/
 }
 
-int INDI::BaseDevice::buildProp(XMLEle *root, char *errmsg)
+int BaseDevice::buildProp(XMLEle *root, char *errmsg)
 {
     IPerm perm    = IP_RO;
     IPState state = IPS_IDLE;
@@ -569,7 +573,7 @@ int INDI::BaseDevice::buildProp(XMLEle *root, char *errmsg)
 
     if (!strcmp(rtag, "defNumberVector"))
     {
-        char *orig = setlocale(LC_NUMERIC, "C");
+        AutoCNumeric locale;
 
         INDI::Property *indiProp   = new INDI::Property();
         INumberVectorProperty *nvp = new INumberVectorProperty;
@@ -648,8 +652,6 @@ int INDI::BaseDevice::buildProp(XMLEle *root, char *errmsg)
             delete (nvp);
             delete (indiProp);
         }
-
-        setlocale(LC_NUMERIC, orig);
     }
     else if (!strcmp(rtag, "defSwitchVector"))
     {
@@ -914,9 +916,9 @@ int INDI::BaseDevice::buildProp(XMLEle *root, char *errmsg)
     return (0);
 }
 
-bool INDI::BaseDevice::isConnected()
+bool BaseDevice::isConnected()
 {
-    ISwitchVectorProperty *svp = getSwitch("CONNECTION");
+    ISwitchVectorProperty *svp = getSwitch(INDI::SP::CONNECTION);
     if (!svp)
         return false;
 
@@ -934,7 +936,7 @@ bool INDI::BaseDevice::isConnected()
 /*
  * return 0 if ok else -1 with reason in errmsg
  */
-int INDI::BaseDevice::setValue(XMLEle *root, char *errmsg)
+int BaseDevice::setValue(XMLEle *root, char *errmsg)
 {
     XMLAtt *ap = nullptr;
     XMLEle *ep = nullptr;
@@ -971,12 +973,9 @@ int INDI::BaseDevice::setValue(XMLEle *root, char *errmsg)
     ap = findXMLAtt(root, "timeout");
     if (ap)
     {
-        char *orig = setlocale(LC_NUMERIC, "C");
-
+        AutoCNumeric locale;
         timeout    = atof(valuXMLAtt(ap));
         timeoutSet = true;
-
-        setlocale(LC_NUMERIC, orig);
     }
 
     checkMessage(root);
@@ -996,7 +995,7 @@ int INDI::BaseDevice::setValue(XMLEle *root, char *errmsg)
         if (timeoutSet)
             nvp->timeout = timeout;
 
-        char *orig = setlocale(LC_NUMERIC, "C");
+        AutoCNumeric locale;
 
         for (ep = nextXMLEle(root, 1); ep != nullptr; ep = nextXMLEle(root, 0))
         {
@@ -1013,7 +1012,7 @@ int INDI::BaseDevice::setValue(XMLEle *root, char *errmsg)
                 np->max = atof(findXMLAttValu(ep, "max"));
         }
 
-        setlocale(LC_NUMERIC, orig);
+        locale.Restore();
 
         if (mediator)
             mediator->newNumber(nvp);
@@ -1123,7 +1122,7 @@ int INDI::BaseDevice::setValue(XMLEle *root, char *errmsg)
 /* Set BLOB vector. Process incoming data stream
  * Return 0 if okay, -1 if error
 */
-int INDI::BaseDevice::setBLOB(IBLOBVectorProperty *bvp, XMLEle *root, char *errmsg)
+int BaseDevice::setBLOB(IBLOBVectorProperty *bvp, XMLEle *root, char *errmsg)
 {
     IBLOB *blobEL;
     unsigned char *dataBuffer = nullptr;
@@ -1202,12 +1201,12 @@ int INDI::BaseDevice::setBLOB(IBLOBVectorProperty *bvp, XMLEle *root, char *errm
     return 0;
 }
 
-void INDI::BaseDevice::setDeviceName(const char *dev)
+void BaseDevice::setDeviceName(const char *dev)
 {
     strncpy(deviceID, dev, MAXINDINAME);
 }
 
-const char *INDI::BaseDevice::getDeviceName()
+const char *BaseDevice::getDeviceName()
 {
     return deviceID;
 }
@@ -1215,7 +1214,7 @@ const char *INDI::BaseDevice::getDeviceName()
 /* add message to queue
  * N.B. don't put carriage control in msg, we take care of that.
  */
-void INDI::BaseDevice::checkMessage(XMLEle *root)
+void BaseDevice::checkMessage(XMLEle *root)
 {
     XMLAtt *ap;
     ap = findXMLAtt(root, "message");
@@ -1225,7 +1224,7 @@ void INDI::BaseDevice::checkMessage(XMLEle *root)
 }
 
 /* Store msg in queue */
-void INDI::BaseDevice::doMessage(XMLEle *msg)
+void BaseDevice::doMessage(XMLEle *msg)
 {
     XMLAtt *message;
     XMLAtt *time_stamp;
@@ -1251,7 +1250,7 @@ void INDI::BaseDevice::doMessage(XMLEle *msg)
     addMessage(finalMsg);
 }
 
-void INDI::BaseDevice::addMessage(const std::string& msg)
+void BaseDevice::addMessage(const std::string& msg)
 {
     messageLog.push_back(msg);
 
@@ -1259,7 +1258,7 @@ void INDI::BaseDevice::addMessage(const std::string& msg)
         mediator->newMessage(this, messageLog.size() - 1);
 }
 
-std::string INDI::BaseDevice::messageQueue(int index) const
+std::string BaseDevice::messageQueue(int index) const
 {
     if (index >= (int)messageLog.size())
         return nullptr;
@@ -1267,12 +1266,12 @@ std::string INDI::BaseDevice::messageQueue(int index) const
     return messageLog.at(index);
 }
 
-std::string INDI::BaseDevice::lastMessage()
+std::string BaseDevice::lastMessage()
 {
     return messageLog.back();
 }
 
-void INDI::BaseDevice::registerProperty(void *p, INDI_PROPERTY_TYPE type)
+void BaseDevice::registerProperty(void *p, INDI_PROPERTY_TYPE type)
 {
     INDI::Property *pContainer;
 
@@ -1357,7 +1356,7 @@ void INDI::BaseDevice::registerProperty(void *p, INDI_PROPERTY_TYPE type)
     }
 }
 
-const char *INDI::BaseDevice::getDriverName()
+const char *BaseDevice::getDriverName()
 {
     ITextVectorProperty *driverInfo = getText("DRIVER_INFO");
 
@@ -1371,7 +1370,7 @@ const char *INDI::BaseDevice::getDriverName()
     return nullptr;
 }
 
-const char *INDI::BaseDevice::getDriverExec()
+const char *BaseDevice::getDriverExec()
 {
     ITextVectorProperty *driverInfo = getText("DRIVER_INFO");
 
@@ -1385,7 +1384,7 @@ const char *INDI::BaseDevice::getDriverExec()
     return nullptr;
 }
 
-const char *INDI::BaseDevice::getDriverVersion()
+const char *BaseDevice::getDriverVersion()
 {
     ITextVectorProperty *driverInfo = getText("DRIVER_INFO");
 
@@ -1399,7 +1398,7 @@ const char *INDI::BaseDevice::getDriverVersion()
     return nullptr;
 }
 
-uint16_t INDI::BaseDevice::getDriverInterface()
+uint16_t BaseDevice::getDriverInterface()
 {
     ITextVectorProperty *driverInfo = getText("DRIVER_INFO");
 
@@ -1411,6 +1410,8 @@ uint16_t INDI::BaseDevice::getDriverInterface()
         return atoi(driverInterface->text);
 
     return 0;
+}
+
 }
 
 #if defined(_MSC_VER)

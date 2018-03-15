@@ -1,5 +1,6 @@
 /*******************************************************************************
  Copyright(c) 2013-2016 CloudMakers, s. r. o. All rights reserved.
+ Copyright(c) 2017 Marco Gulino <marco.gulino@gmai.com>
 
  This library is free software; you can redistribute it and/or
  modify it under the terms of the GNU Library General Public
@@ -20,34 +21,68 @@
 
 #include "baseclient.h"
 #include "defaultdevice.h"
-
 #define MAX_GROUP_COUNT 16
 
-class Group
-{
-  private:
-    char groupName[16];
-    char groupSettingsName[32];
-
-  public:
-    Group(int id);
-    INumberVectorProperty GroupSettingsNP;
-    INumber GroupSettingsN[4];
-
-    bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n);
-
-    void defineProperties();
-    void deleteProperties();
-};
-
+class Group;
 class Imager : public virtual INDI::DefaultDevice, public virtual INDI::BaseClient
 {
+  public:
+    static const std::string DEVICE_NAME;
+    Imager();
+    virtual ~Imager() = default;
+
+    // DefaultDevice
+
+    virtual bool initProperties();
+    virtual bool updateProperties();
+    virtual void ISGetProperties(const char *dev);
+    virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n);
+    virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n);
+    virtual bool ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n);
+    virtual bool ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[],
+                           char *formats[], char *names[], int n);
+    virtual bool ISSnoopDevice(XMLEle *root);
+
+    // BaseClient
+
+    virtual void newDevice(INDI::BaseDevice *dp);
+    virtual void newProperty(INDI::Property *property);
+    virtual void removeProperty(INDI::Property *property);
+    virtual void removeDevice(INDI::BaseDevice *dp);
+    virtual void newBLOB(IBLOB *bp);
+    virtual void newSwitch(ISwitchVectorProperty *svp);
+    virtual void newNumber(INumberVectorProperty *nvp);
+    virtual void newText(ITextVectorProperty *tvp);
+    virtual void newLight(ILightVectorProperty *lvp);
+    virtual void newMessage(INDI::BaseDevice *dp, int messageID);
+    virtual void serverConnected();
+    virtual void serverDisconnected(int exit_code);
+
+  protected:
+    virtual const char *getDefaultName();
+    virtual bool Connect();
+    virtual bool Disconnect();
+
   private:
+    bool isRunning();
+    bool isCCDConnected();
+    bool isFilterConnected();
+    void defineProperties();
+    void deleteProperties();
+    void initiateNextFilter();
+    void initiateNextCapture();
+    void startBatch();
+    void abortBatch();
+    void batchDone();
+    void initiateDownload();
+
     char format[16];
-    int group, maxGroup;
-    int image, maxImage;
-    char *controlledCCD;
-    char *controlledFilterWheel;
+    int group { 0 };
+    int maxGroup { 0 };
+    int image { 0 };
+    int maxImage { 0 };
+    char *controlledCCD { nullptr };
+    char *controlledFilterWheel { nullptr };
 
     ITextVectorProperty ControlledDeviceTP;
     IText ControlledDeviceT[2];
@@ -78,53 +113,9 @@ class Imager : public virtual INDI::DefaultDevice, public virtual INDI::BaseClie
     INumberVectorProperty FilterSlotNP;
     INumber FilterSlotN[1];
 
-    Group *groups[MAX_GROUP_COUNT];
-
-    bool isRunning();
-    bool isCCDConnected();
-    bool isFilterConnected();
-    void defineProperties();
-    void deleteProperties();
-    void initiateNextFilter();
-    void initiateNextCapture();
-    void startBatch();
-    void abortBatch();
-    void batchDone();
-    void initiateDownload();
-
-  protected:
-    virtual const char *getDefaultName();
-    virtual bool Connect();
-    virtual bool Disconnect();
-
-  public:
-    Imager();
-    virtual ~Imager();
-
-    // DefaultDevice
-
-    virtual bool initProperties();
-    virtual bool updateProperties();
-    virtual void ISGetProperties(const char *dev);
-    virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n);
-    virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n);
-    virtual bool ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n);
-    virtual bool ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[],
-                           char *formats[], char *names[], int n);
-    virtual bool ISSnoopDevice(XMLEle *root);
-
-    // BaseClient
-
-    virtual void newDevice(INDI::BaseDevice *dp);
-    virtual void newProperty(INDI::Property *property);
-    virtual void removeProperty(INDI::Property *property);
-    virtual void removeDevice(INDI::BaseDevice *dp);
-    virtual void newBLOB(IBLOB *bp);
-    virtual void newSwitch(ISwitchVectorProperty *svp);
-    virtual void newNumber(INumberVectorProperty *nvp);
-    virtual void newText(ITextVectorProperty *tvp);
-    virtual void newLight(ILightVectorProperty *lvp);
-    virtual void newMessage(INDI::BaseDevice *dp, int messageID);
-    virtual void serverConnected();
-    virtual void serverDisconnected(int exit_code);
+    std::vector<std::shared_ptr<Group>> groups;
+    std::shared_ptr<Group> currentGroup() const;
+    std::shared_ptr<Group> nextGroup() const;
+    std::shared_ptr<Group> getGroup(int index) const;
+    
 };

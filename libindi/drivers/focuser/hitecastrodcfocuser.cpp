@@ -20,10 +20,9 @@
 
 #include "hitecastrodcfocuser.h"
 
+#include <cstring>
 #include <memory>
-#include <string.h>
 
-#define POLLMS         100   /* 0.1s */
 #define HID_TIMEOUT    10000 /* 10s */
 #define FUDGE_FACTOR_H 1000
 #define FUDGE_FACTOR_L 885
@@ -39,19 +38,19 @@ void ISGetProperties(const char *dev)
     hitecastroDcFocuser->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    hitecastroDcFocuser->ISNewSwitch(dev, name, states, names, num);
+    hitecastroDcFocuser->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    hitecastroDcFocuser->ISNewText(dev, name, texts, names, num);
+    hitecastroDcFocuser->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    hitecastroDcFocuser->ISNewNumber(dev, name, values, names, num);
+    hitecastroDcFocuser->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -72,18 +71,18 @@ void ISSnoopDevice(XMLEle *root)
     hitecastroDcFocuser->ISSnoopDevice(root);
 }
 
-HitecAstroDCFocuser::HitecAstroDCFocuser() : _handle(0)
+HitecAstroDCFocuser::HitecAstroDCFocuser() : _handle(nullptr)
 {
-    SetFocuserCapability(FOCUSER_CAN_REL_MOVE); // | FOCUSER_HAS_VARIABLE_SPEED);
-    setFocuserConnection(CONNECTION_NONE);
+    FI::SetCapability(FOCUSER_CAN_REL_MOVE); // | FOCUSER_HAS_VARIABLE_SPEED);
+    setConnection(CONNECTION_NONE);
 }
 
 HitecAstroDCFocuser::~HitecAstroDCFocuser()
 {
-    if (_handle)
+    if (_handle != nullptr)
     {
         hid_close(_handle);
-        _handle = 0;
+        _handle = nullptr;
     }
 }
 
@@ -97,16 +96,19 @@ bool HitecAstroDCFocuser::Connect()
         return true;
     }
 
-    if (hid_init())
+    if (hid_init() != 0)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "hid_init() failed.");
+        LOG_ERROR("hid_init() failed.");
     }
 
-    _handle = hid_open(0x04D8, 0xFAC2, 0);
+    _handle = hid_open(0x04D8, 0xFAC2, nullptr);
 
-    DEBUG(INDI::Logger::DBG_DEBUG, _handle ? "HitecAstroDCFocuser opened." : "HitecAstroDCFocuser failed.");
+    if (_handle == nullptr)
+        _handle = hid_open(0x04D8, 0xF53A, nullptr);
 
-    if (_handle)
+    LOG_DEBUG(_handle ? "HitecAstroDCFocuser opened." : "HitecAstroDCFocuser failed.");
+
+    if (_handle != nullptr)
     {
         DEBUG(INDI::Logger::DBG_SESSION,
               "Experimental driver. Report issues to https://github.com/A-j-K/hitecastrodcfocuser/issues");
@@ -114,25 +116,25 @@ bool HitecAstroDCFocuser::Connect()
         return true;
     }
 
-    DEBUGF(INDI::Logger::DBG_ERROR, "Failed to connect to focuser: %s", hid_error(_handle));
+    LOGF_ERROR("Failed to connect to focuser: %s", hid_error(_handle));
     return false;
 }
 
 bool HitecAstroDCFocuser::Disconnect()
 {
-    if (!sim && _handle)
+    if (!sim && _handle != nullptr)
     {
         hid_close(_handle);
-        _handle = 0;
+        _handle = nullptr;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "HitecAstroDCFocuser closed.");
+    LOG_DEBUG("HitecAstroDCFocuser closed.");
     return true;
 }
 
 const char *HitecAstroDCFocuser::getDefaultName()
 {
-    return (char *)"HitecAstro DC";
+    return (const char *)"HitecAstro DC";
 }
 
 bool HitecAstroDCFocuser::initProperties()
@@ -171,6 +173,8 @@ bool HitecAstroDCFocuser::initProperties()
     FocusRelPosN[0].step  = FocusRelPosN[0].max / 100.0;
     FocusRelPosN[0].value = 100;
 
+    setDefaultPollingPeriod(500);
+
     return true;
 }
 
@@ -202,14 +206,14 @@ void HitecAstroDCFocuser::TimerHit()
         if (_duration == 0)
         {
             int rc;
-            unsigned char command[8];
+            unsigned char command[8]={0};
             _state = IDLE;
             memset(command, 0, 8);
             command[0] = _stop;
             rc         = hid_write(_handle, command, 8);
             if (rc < 0)
             {
-                DEBUGF(INDI::Logger::DBG_DEBUG, "::MoveFocuser() fail (%s)", hid_error(_handle));
+                LOGF_DEBUG("::MoveFocuser() fail (%s)", hid_error(_handle));
             }
             hid_read_timeout(_handle, command, 8, 1000);
         }
@@ -219,9 +223,9 @@ void HitecAstroDCFocuser::TimerHit()
 
 bool HitecAstroDCFocuser::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    if (!strcmp(dev, getDeviceName()))
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
-        if (!strcmp(name, ReverseDirectionSP.name))
+        if (strcmp(name, ReverseDirectionSP.name) == 0)
         {
             IUUpdateSwitch(&ReverseDirectionSP, states, names, n);
             ReverseDirectionSP.s = IPS_OK;
@@ -234,16 +238,16 @@ bool HitecAstroDCFocuser::ISNewSwitch(const char *dev, const char *name, ISState
 
 bool HitecAstroDCFocuser::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    if (!strcmp(dev, getDeviceName()))
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
-        if (!strcmp(name, MaxPositionNP.name))
+        if (strcmp(name, MaxPositionNP.name) == 0)
         {
             IUUpdateNumber(&MaxPositionNP, values, names, n);
             MaxPositionNP.s = IPS_OK;
             IDSetNumber(&MaxPositionNP, nullptr);
             return true;
         }
-        if (!strcmp(name, SlewSpeedNP.name))
+        if (strcmp(name, SlewSpeedNP.name) == 0)
         {
             if (values[0] > 100)
             {
@@ -262,15 +266,15 @@ bool HitecAstroDCFocuser::ISNewNumber(const char *dev, const char *name, double 
 IPState HitecAstroDCFocuser::MoveRelFocuser(FocusDirection dir, uint32_t ticks)
 {
     int rc, speed = (int)SlewSpeedN[0].value; //_slew_speed;
-    int32_t iticks = ticks;
-    unsigned char command[8];
+//    int32_t iticks = ticks;
+    unsigned char command[8]={0};
     IPState rval;
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "::move() begin %d ticks at speed %d", ticks, speed);
+    LOGF_DEBUG("::move() begin %d ticks at speed %d", ticks, speed);
 
-    if (!_handle)
+    if (_handle == nullptr)
     {
-        DEBUG(INDI::Logger::DBG_DEBUG, "::move() bad handle");
+        LOG_DEBUG("::move() bad handle");
         return IPS_ALERT;
     }
 
@@ -278,10 +282,10 @@ IPState HitecAstroDCFocuser::MoveRelFocuser(FocusDirection dir, uint32_t ticks)
     IDSetNumber(&FocusRelPosNP, nullptr);
 
     // JM 2017-03-16: iticks is not used, FIXME.
-    if (dir == FOCUS_INWARD)
-    {
-        iticks = ticks * -1;
-    }
+//    if (dir == FOCUS_INWARD)
+//    {
+//        iticks = ticks * -1;
+//    }
 
     if (ReverseDirectionS[0].s == ISS_ON)
     {
@@ -290,7 +294,7 @@ IPState HitecAstroDCFocuser::MoveRelFocuser(FocusDirection dir, uint32_t ticks)
 
     if (speed > 100)
     {
-        DEBUGF(INDI::Logger::DBG_DEBUG, "::move() over speed %d, limiting to 100", ticks, speed);
+        LOGF_DEBUG("::move() over speed %d, limiting to 100", ticks, speed);
         speed = 100;
     }
 
@@ -307,13 +311,13 @@ IPState HitecAstroDCFocuser::MoveRelFocuser(FocusDirection dir, uint32_t ticks)
     command[6] = 0;
     command[7] = 0;
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "==> TX %2.2x %2.2x%2.2x %2.2x %2.2x %2.2x%2.2x%2.2x", command[0], command[1],
+    LOGF_DEBUG("==> TX %2.2x %2.2x%2.2x %2.2x %2.2x %2.2x%2.2x%2.2x", command[0], command[1],
            command[2], command[3], command[4], command[5], command[6], command[7]);
 
     rc = hid_write(_handle, command, 8);
     if (rc < 0)
     {
-        DEBUGF(INDI::Logger::DBG_DEBUG, "::MoveRelFocuser() fail (%s)", hid_error(_handle));
+        LOGF_DEBUG("::MoveRelFocuser() fail (%s)", hid_error(_handle));
         return IPS_ALERT;
     }
 
@@ -321,7 +325,7 @@ IPState HitecAstroDCFocuser::MoveRelFocuser(FocusDirection dir, uint32_t ticks)
 
     memset(command, 0, 8);
     hid_read_timeout(_handle, command, 8, HID_TIMEOUT);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "==> RX %2.2x %2.2x%2.2x %2.2x %2.2x %2.2x%2.2x%2.2x", command[0], command[1],
+    LOGF_DEBUG("==> RX %2.2x %2.2x%2.2x %2.2x %2.2x %2.2x%2.2x%2.2x", command[0], command[1],
            command[2], command[3], command[4], command[5], command[6], command[7]);
 
     rval = command[1] == 0x21 ? IPS_OK : IPS_ALERT;
@@ -335,12 +339,12 @@ IPState HitecAstroDCFocuser::MoveRelFocuser(FocusDirection dir, uint32_t ticks)
 IPState HitecAstroDCFocuser::MoveFocuser(FocusDirection dir, int speed, uint16_t duration)
 {
     int rc;
-    unsigned char command[8];
+    unsigned char command[8]={0};
     IPState rval;
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "::MoveFocuser(%d %d %d)", dir, speed, duration);
+    LOGF_DEBUG("::MoveFocuser(%d %d %d)", dir, speed, duration);
 
-    if (!_handle)
+    if (_handle == nullptr)
     {
         return IPS_ALERT;
     }
@@ -355,7 +359,7 @@ IPState HitecAstroDCFocuser::MoveFocuser(FocusDirection dir, int speed, uint16_t
 
     if (speed > 100)
     {
-        DEBUGF(INDI::Logger::DBG_DEBUG, "::MoveFocuser() over speed %d, limiting to 100", speed);
+        LOGF_DEBUG("::MoveFocuser() over speed %d, limiting to 100", speed);
         speed = 100;
     }
 
@@ -371,19 +375,19 @@ IPState HitecAstroDCFocuser::MoveFocuser(FocusDirection dir, int speed, uint16_t
     command[6] = 0;
     command[7] = 0;
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "==> TX %2.2x %2.2x%2.2x %2.2x %2.2x %2.2x%2.2x%2.2x", command[0], command[1],
+    LOGF_DEBUG("==> TX %2.2x %2.2x%2.2x %2.2x %2.2x %2.2x%2.2x%2.2x", command[0], command[1],
            command[2], command[3], command[4], command[5], command[6], command[7]);
 
     rc = hid_write(_handle, command, 8);
     if (rc < 0)
     {
-        DEBUGF(INDI::Logger::DBG_DEBUG, "::MoveFocuser() fail (%s)", hid_error(_handle));
+        LOGF_DEBUG("::MoveFocuser() fail (%s)", hid_error(_handle));
         return IPS_ALERT;
     }
 
     memset(command, 0, 8);
     hid_read_timeout(_handle, command, 8, HID_TIMEOUT);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "==> RX %2.2x %2.2x%2.2x %2.2x %2.2x %2.2x%2.2x%2.2x", command[0], command[1],
+    LOGF_DEBUG("==> RX %2.2x %2.2x%2.2x %2.2x %2.2x %2.2x%2.2x%2.2x", command[0], command[1],
            command[2], command[3], command[4], command[5], command[6], command[7]);
 
     rval = command[1] == 0x24 ? IPS_OK : IPS_ALERT;
@@ -399,7 +403,7 @@ IPState HitecAstroDCFocuser::MoveFocuser(FocusDirection dir, int speed, uint16_t
 
 bool HitecAstroDCFocuser::saveConfigItems(FILE *fp)
 {
-    INDI::Focuser::saveAllConfigItems(fp);
+    INDI::Focuser::saveConfigItems(fp);
 
     IUSaveConfigNumber(fp, &MaxPositionNP);
     IUSaveConfigNumber(fp, &SlewSpeedNP);

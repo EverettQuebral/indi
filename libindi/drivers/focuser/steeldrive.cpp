@@ -22,9 +22,9 @@
 
 #include "indicom.h"
 
-#include <math.h>
+#include <cmath>
 #include <memory>
-#include <string.h>
+#include <cstring>
 #include <termios.h>
 #include <unistd.h>
 
@@ -38,8 +38,6 @@
 
 #define FOCUS_SETTINGS_TAB "Settings"
 
-#define POLLMS 500
-
 std::unique_ptr<SteelDrive> steelDrive(new SteelDrive());
 
 void ISGetProperties(const char *dev)
@@ -47,19 +45,19 @@ void ISGetProperties(const char *dev)
     steelDrive->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    steelDrive->ISNewSwitch(dev, name, states, names, num);
+    steelDrive->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    steelDrive->ISNewText(dev, name, texts, names, num);
+    steelDrive->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    steelDrive->ISNewNumber(dev, name, values, names, num);
+    steelDrive->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -83,15 +81,7 @@ void ISSnoopDevice(XMLEle *root)
 SteelDrive::SteelDrive()
 {
     // Can move in Absolute & Relative motions, can AbortFocuser motion, and has variable speed.
-    SetFocuserCapability(FOCUSER_CAN_ABS_MOVE | FOCUSER_CAN_REL_MOVE | FOCUSER_CAN_ABORT | FOCUSER_HAS_VARIABLE_SPEED);
-
-    sim             = false;
-    lastPos         = 0;
-    lastTemperature = 0;
-}
-
-SteelDrive::~SteelDrive()
-{
+    FI::SetCapability(FOCUSER_CAN_ABS_MOVE | FOCUSER_CAN_REL_MOVE | FOCUSER_CAN_ABORT | FOCUSER_HAS_VARIABLE_SPEED);
 }
 
 bool SteelDrive::initProperties()
@@ -168,6 +158,8 @@ bool SteelDrive::initProperties()
 
     addAuxControls();
 
+    setDefaultPollingPeriod(500);
+
     return true;
 }
 
@@ -192,7 +184,7 @@ bool SteelDrive::updateProperties()
 
         //loadConfig(true);
 
-        DEBUG(INDI::Logger::DBG_SESSION, "SteelDrive paramaters updated, focuser ready for use.");
+        LOG_INFO("SteelDrive paramaters updated, focuser ready for use.");
     }
     else
     {
@@ -218,12 +210,12 @@ bool SteelDrive::Handshake()
 
     if (Ack())
     {
-        DEBUG(INDI::Logger::DBG_SESSION, "SteelDrive is online. Getting focus parameters...");
+        LOG_INFO("SteelDrive is online. Getting focus parameters...");
         temperatureUpdateCounter = 0;
         return true;
     }
 
-    DEBUG(INDI::Logger::DBG_SESSION, "Error retreiving data from SteelDrive, please ensure SteelDrive controller is "
+    LOG_INFO("Error retreiving data from SteelDrive, please ensure SteelDrive controller is "
                                      "powered and the port is correct.");
     return false;
 }
@@ -248,11 +240,11 @@ bool SteelDrive::Ack()
     if (!sim && (rc = tty_write(PortFD, ":FVERSIO#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FVERSIO# getHWVersion error: %s.", errstr);
+        LOGF_ERROR(":FVERSIO# getHWVersion error: %s.", errstr);
         return false;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:FVERSIO#)");
+    LOG_DEBUG("CMD (:FVERSIO#)");
 
     if (sim)
     {
@@ -262,20 +254,17 @@ bool SteelDrive::Ack()
     else if ((rc = tty_read_section(PortFD, resp, '#', STEELDRIVE_TIMEOUT, &nbytes_read)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "getHWVersion error: %s.", errstr);
+        LOGF_ERROR("getHWVersion error: %s.", errstr);
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":FV%s#", hwVer);
 
-    if (rc > 0)
-        return true;
-    else
-        return false;
+    return rc > 0;
 }
 
 /************************************************************************************
@@ -304,11 +293,11 @@ bool SteelDrive::updateVersion()
     if (!sim && (rc = tty_write(PortFD, ":FVERSIO#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FVERSIO# getHWVersion write error: %s.", errstr);
+        LOGF_ERROR(":FVERSIO# getHWVersion write error: %s.", errstr);
         return false;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:FVERSIO#)");
+    LOG_DEBUG("CMD (:FVERSIO#)");
 
     if (sim)
     {
@@ -318,13 +307,13 @@ bool SteelDrive::updateVersion()
     else if ((rc = tty_read_section(PortFD, resp, '#', STEELDRIVE_TIMEOUT, &nbytes_read)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "FVERSIO# getHWVersion read error: %s.", errstr);
+        LOGF_ERROR("FVERSIO# getHWVersion read error: %s.", errstr);
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":FV%s#", hardware_string);
 
@@ -342,7 +331,7 @@ bool SteelDrive::updateVersion()
     }
     else
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Unknown error: getHWVersion value (%s)", resp);
+        LOGF_ERROR("Unknown error: getHWVersion value (%s)", resp);
         return false;
     }
 
@@ -351,11 +340,11 @@ bool SteelDrive::updateVersion()
     if (!sim && (rc = tty_write(PortFD, ":FNFIRMW#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FNFIRMW# getSWVersion write error: %s.", errstr);
+        LOGF_ERROR(":FNFIRMW# getSWVersion write error: %s.", errstr);
         return false;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:FNFIRMW#)");
+    LOG_DEBUG("CMD (:FNFIRMW#)");
 
     if (sim)
     {
@@ -365,13 +354,13 @@ bool SteelDrive::updateVersion()
     else if ((rc = tty_read_section(PortFD, resp, '#', STEELDRIVE_TIMEOUT, &nbytes_read)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "FNFIRMW# getSWVersion read error: %s.", errstr);
+        LOGF_ERROR("FNFIRMW# getSWVersion read error: %s.", errstr);
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":FN%s#", firmware_string);
 
@@ -389,7 +378,7 @@ bool SteelDrive::updateVersion()
     }
     else
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Unknown error: getSWVersion value (%s)", resp);
+        LOGF_ERROR("Unknown error: getSWVersion value (%s)", resp);
         return false;
     }
 
@@ -411,11 +400,11 @@ bool SteelDrive::updateTemperature()
     if (!sim && (rc = tty_write(PortFD, ":F5ASKT0#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":F5ASKT0# updateTemperature write error: %s.", errstr);
+        LOGF_ERROR(":F5ASKT0# updateTemperature write error: %s.", errstr);
         return false;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:F5ASKT0#)");
+    LOG_DEBUG("CMD (:F5ASKT0#)");
 
     if (sim)
     {
@@ -425,13 +414,13 @@ bool SteelDrive::updateTemperature()
     else if ((rc = tty_read_section(PortFD, resp, '#', STEELDRIVE_TIMEOUT, &nbytes_read)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":F5ASKT0# updateTemperature read error: %s.", errstr);
+        LOGF_ERROR(":F5ASKT0# updateTemperature read error: %s.", errstr);
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":F5%d#", &temperature);
 
@@ -447,10 +436,10 @@ bool SteelDrive::updateTemperature()
         if (rc > 0)
         {
             TemperatureN[0].value = 0;
-            DEBUG(INDI::Logger::DBG_DEBUG, "Temperature probe is not connected.");
+            LOG_DEBUG("Temperature probe is not connected.");
         }
         else
-            DEBUGF(INDI::Logger::DBG_ERROR, "Unknown error: focuser temperature value (%s)", resp);
+            LOGF_ERROR("Unknown error: focuser temperature value (%s)", resp);
 
         TemperatureNP.s = IPS_ALERT;
         return false;
@@ -477,11 +466,11 @@ bool SteelDrive::updatePosition()
         if (!sim && (rc = tty_write(PortFD, ":F8ASKS0#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
         {
             tty_error_msg(rc, errstr, MAXRBUF);
-            DEBUGF(INDI::Logger::DBG_ERROR, ":F8ASKS0# updatePostion write error: %s.", errstr);
+            LOGF_ERROR(":F8ASKS0# updatePostion write error: %s.", errstr);
             return false;
         }
 
-        DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:F8ASKS0#)");
+        LOG_DEBUG("CMD (:F8ASKS0#)");
 
         if (sim)
         {
@@ -493,8 +482,7 @@ bool SteelDrive::updatePosition()
         {
             tty_error_msg(rc, errstr, MAXRBUF);
             resp[nbytes_read] = '\0';
-            DEBUGF(INDI::Logger::DBG_DEBUG,
-                   ":F8ASKS0# updatePosition read error: %s. Retry: %d. Bytes: %d. Buffer (%s)", errstr, retries,
+            LOGF_DEBUG(":F8ASKS0# updatePosition read error: %s. Retry: %d. Bytes: %d. Buffer (%s)", errstr, retries,
                    nbytes_read, resp);
         }
         else
@@ -503,13 +491,13 @@ bool SteelDrive::updatePosition()
 
     if (retries == STEELDRIVE_MAX_RETRIES)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "UpdatePosition: failed to read.");
+        LOG_ERROR("UpdatePosition: failed to read.");
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":F8%hu#", &pos);
 
@@ -519,7 +507,7 @@ bool SteelDrive::updatePosition()
     }
     else
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Unknown error: focuser position value (%s)", resp);
+        LOGF_ERROR("Unknown error: focuser position value (%s)", resp);
         return false;
     }
 
@@ -541,11 +529,11 @@ bool SteelDrive::updateSpeed()
     if (!sim && (rc = tty_write(PortFD, ":FGSPMAX#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FGSPMAX# updateSpeed write error: %s.", errstr);
+        LOGF_ERROR(":FGSPMAX# updateSpeed write error: %s.", errstr);
         return false;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:FGSPMAX#)");
+    LOG_DEBUG("CMD (:FGSPMAX#)");
 
     if (sim)
     {
@@ -555,13 +543,13 @@ bool SteelDrive::updateSpeed()
     else if ((rc = tty_read_section(PortFD, resp, '#', STEELDRIVE_TIMEOUT, &nbytes_read)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FGSPMAX# updateSpeed read error: %s.", errstr);
+        LOGF_ERROR(":FGSPMAX# updateSpeed read error: %s.", errstr);
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":FG%hu#", &speed);
 
@@ -571,7 +559,7 @@ bool SteelDrive::updateSpeed()
     }
     else
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Unknown error: focuser speed value (%s)", resp);
+        LOGF_ERROR("Unknown error: focuser speed value (%s)", resp);
         return false;
     }
 
@@ -593,11 +581,11 @@ bool SteelDrive::updateAcceleration()
     if (!sim && (rc = tty_write(PortFD, ":FHSPMIN#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FHSPMIN# updateAcceleration write error: %s.", errstr);
+        LOGF_ERROR(":FHSPMIN# updateAcceleration write error: %s.", errstr);
         return false;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:FHSPMIN#)");
+    LOG_DEBUG("CMD (:FHSPMIN#)");
 
     if (sim)
     {
@@ -607,13 +595,13 @@ bool SteelDrive::updateAcceleration()
     else if ((rc = tty_read_section(PortFD, resp, '#', STEELDRIVE_TIMEOUT, &nbytes_read)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FHSPMIN# updateAcceleration read error: %s.", errstr);
+        LOGF_ERROR(":FHSPMIN# updateAcceleration read error: %s.", errstr);
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":FH%hu#", &accel);
 
@@ -623,7 +611,7 @@ bool SteelDrive::updateAcceleration()
     }
     else
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Unknown error: updateAcceleration value (%s)", resp);
+        LOGF_ERROR("Unknown error: updateAcceleration value (%s)", resp);
         return false;
     }
     return true;
@@ -645,11 +633,11 @@ bool SteelDrive::updateTemperatureSettings()
     if (!sim && (rc = tty_write(PortFD, ":F7ASKC0#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":F7ASKC0# updateTemperatureSettings write error: %s.", errstr);
+        LOGF_ERROR(":F7ASKC0# updateTemperatureSettings write error: %s.", errstr);
         return false;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:F7ASKC0#)");
+    LOG_DEBUG("CMD (:F7ASKC0#)");
 
     if (sim)
     {
@@ -659,13 +647,13 @@ bool SteelDrive::updateTemperatureSettings()
     else if ((rc = tty_read_section(PortFD, resp, '#', STEELDRIVE_TIMEOUT, &nbytes_read)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":F7ASKC0# updateTemperatureSettings read error: %s.", errstr);
+        LOGF_ERROR(":F7ASKC0# updateTemperatureSettings read error: %s.", errstr);
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":F7%s#", tResp);
 
@@ -685,7 +673,7 @@ bool SteelDrive::updateTemperatureSettings()
     }
     else
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Unknown error: updateTemperatureSettings value (%s)", resp);
+        LOGF_ERROR("Unknown error: updateTemperatureSettings value (%s)", resp);
         return false;
     }
 
@@ -711,11 +699,11 @@ bool SteelDrive::updateCustomSettings()
     if (!sim && (rc = tty_write(PortFD, ":FEASKGR#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FEASKGR# updateCustomSettings write error: %s.", errstr);
+        LOGF_ERROR(":FEASKGR# updateCustomSettings write error: %s.", errstr);
         return false;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:FEASKGR#)");
+    LOG_DEBUG("CMD (:FEASKGR#)");
 
     if (sim)
     {
@@ -725,13 +713,13 @@ bool SteelDrive::updateCustomSettings()
     else if ((rc = tty_read_section(PortFD, resp, '#', STEELDRIVE_TIMEOUT, &nbytes_read)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FEASKGR# updateCustomSettings read error: %s.", errstr);
+        LOGF_ERROR(":FEASKGR# updateCustomSettings read error: %s.", errstr);
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":FE%d#", &gearR);
 
@@ -741,7 +729,7 @@ bool SteelDrive::updateCustomSettings()
     }
     else
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Unknown error: updateCustomSettings value (%s)", resp);
+        LOGF_ERROR("Unknown error: updateCustomSettings value (%s)", resp);
         return false;
     }
 
@@ -751,11 +739,11 @@ bool SteelDrive::updateCustomSettings()
     if (!sim && (rc = tty_write(PortFD, ":F8ASKS1#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":F8ASKS1# updateCustomSettings write error: %s.", errstr);
+        LOGF_ERROR(":F8ASKS1# updateCustomSettings write error: %s.", errstr);
         return false;
     }
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:F8ASKS1#)");
+    LOG_DEBUG("CMD (:F8ASKS1#)");
 
     if (sim)
     {
@@ -765,13 +753,13 @@ bool SteelDrive::updateCustomSettings()
     else if ((rc = tty_read_section(PortFD, resp, '#', STEELDRIVE_TIMEOUT, &nbytes_read)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":F8ASKS1# updateCustomSettings read error: %s.", errstr);
+        LOGF_ERROR(":F8ASKS1# updateCustomSettings read error: %s.", errstr);
         return false;
     }
 
     resp[nbytes_read] = '\0';
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "RES (%s)", resp);
+    LOGF_DEBUG("RES (%s)", resp);
 
     rc = sscanf(resp, ":F%s#", tResp);
 
@@ -791,12 +779,12 @@ bool SteelDrive::updateCustomSettings()
         CustomSettingN[FOCUS_MAX_TRIP].value   = fSettings[sFocuser].maxTrip;
         CustomSettingN[FOCUS_GEAR_RATIO].value = fSettings[sFocuser].gearRatio;
 
-        DEBUGF(INDI::Logger::DBG_DEBUG, "Updated max trip: %g gear ratio: %g", fSettings[sFocuser].maxTrip,
+        LOGF_DEBUG("Updated max trip: %g gear ratio: %g", fSettings[sFocuser].maxTrip,
                fSettings[sFocuser].gearRatio);
     }
     else
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Unknown error: updateCustomSettings value (%s)", resp);
+        LOGF_ERROR("Unknown error: updateCustomSettings value (%s)", resp);
         return false;
     }
 
@@ -840,12 +828,12 @@ bool SteelDrive::setTemperatureSamples(unsigned int targetSamples, unsigned int 
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD (%s)", cmd);
+    LOGF_DEBUG("CMD (%s)", cmd);
 
     if (!sim && (rc = tty_write(PortFD, cmd, STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "%s setTemperatureSamples write error: %s.", cmd, errstr);
+        LOGF_ERROR("%s setTemperatureSamples write error: %s.", cmd, errstr);
         return false;
     }
 
@@ -872,12 +860,12 @@ bool SteelDrive::setTemperatureCompensation()
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD (%s)", cmd);
+    LOGF_DEBUG("CMD (%s)", cmd);
 
     if (!sim && (rc = tty_write(PortFD, cmd, STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "setTemperatureCoefficient error: %s.", errstr);
+        LOGF_ERROR("setTemperatureCoefficient error: %s.", errstr);
         return false;
     }
 
@@ -899,12 +887,12 @@ bool SteelDrive::setCustomSettings(double maxTrip, double gearRatio)
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD (%s)", cmd);
+    LOGF_DEBUG("CMD (%s)", cmd);
 
     if (!sim && (rc = tty_write(PortFD, cmd, STEELDRIVE_CMD_LONG, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "setCustomSettings error: %s.", errstr);
+        LOGF_ERROR("setCustomSettings error: %s.", errstr);
         return false;
     }
 
@@ -912,12 +900,12 @@ bool SteelDrive::setCustomSettings(double maxTrip, double gearRatio)
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD (%s)", cmd);
+    LOGF_DEBUG("CMD (%s)", cmd);
 
     if (!sim && (rc = tty_write(PortFD, cmd, STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "setCustomSettings error: %s.", errstr);
+        LOGF_ERROR("setCustomSettings error: %s.", errstr);
         return false;
     }
 
@@ -937,12 +925,12 @@ bool SteelDrive::Sync(unsigned int position)
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD (%s)", cmd);
+    LOGF_DEBUG("CMD (%s)", cmd);
 
     if (!sim && (rc = tty_write(PortFD, cmd, STEELDRIVE_CMD_LONG, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "Sync error: %s.", errstr);
+        LOGF_ERROR("Sync error: %s.", errstr);
         return false;
     }
 
@@ -962,7 +950,7 @@ bool SteelDrive::moveFocuser(unsigned int position)
 
     if (position < FocusAbsPosN[0].min || position > FocusAbsPosN[0].max)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Requested position value out of bound: %d", position);
+        LOGF_ERROR("Requested position value out of bound: %d", position);
         return false;
     }
 
@@ -973,13 +961,13 @@ bool SteelDrive::moveFocuser(unsigned int position)
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD (%s)", cmd);
+    LOGF_DEBUG("CMD (%s)", cmd);
 
     // Goto absolute step
     if (!sim && (rc = tty_write(PortFD, cmd, STEELDRIVE_CMD_LONG, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "setPosition error: %s.", errstr);
+        LOGF_ERROR("setPosition error: %s.", errstr);
         return false;
     }
 
@@ -1003,12 +991,12 @@ bool SteelDrive::startMotion(FocusDirection dir)
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD (%s)", cmd);
+    LOGF_DEBUG("CMD (%s)", cmd);
 
     if (!sim && (rc = tty_write(PortFD, cmd, STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "StartMotion error: %s.", errstr);
+        LOGF_ERROR("StartMotion error: %s.", errstr);
         return false;
     }
 
@@ -1028,12 +1016,12 @@ bool SteelDrive::setSpeed(unsigned short speed)
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD (%s)", cmd);
+    LOGF_DEBUG("CMD (%s)", cmd);
 
     if (!sim && (rc = tty_write(PortFD, cmd, STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "setSpeed error: %s.", errstr);
+        LOGF_ERROR("setSpeed error: %s.", errstr);
         return false;
     }
 
@@ -1055,12 +1043,12 @@ bool SteelDrive::setAcceleration(unsigned short accel)
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "CMD (%s)", cmd);
+    LOGF_DEBUG("CMD (%s)", cmd);
 
     if (!sim && (rc = tty_write(PortFD, cmd, STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, "setAcceleration error: %s.", errstr);
+        LOGF_ERROR("setAcceleration error: %s.", errstr);
         return false;
     }
 
@@ -1072,16 +1060,16 @@ bool SteelDrive::setAcceleration(unsigned short accel)
 * ***********************************************************************************/
 bool SteelDrive::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
-        if (!strcmp(TemperatureCompensateSP.name, name))
+        if (strcmp(TemperatureCompensateSP.name, name) == 0)
         {
             int last_index = IUFindOnSwitchIndex(&TemperatureCompensateSP);
             IUUpdateSwitch(&TemperatureCompensateSP, states, names, n);
 
             bool rc = setTemperatureCompensation();
 
-            if (rc == false)
+            if (!rc)
             {
                 TemperatureCompensateSP.s = IPS_ALERT;
                 IUResetSwitch(&TemperatureCompensateSP);
@@ -1095,7 +1083,7 @@ bool SteelDrive::ISNewSwitch(const char *dev, const char *name, ISState *states,
             return true;
         }
 
-        if (!strcmp(ModelSP.name, name))
+        if (strcmp(ModelSP.name, name) == 0)
         {
             IUUpdateSwitch(&ModelSP, states, names, n);
 
@@ -1125,10 +1113,10 @@ bool SteelDrive::ISNewSwitch(const char *dev, const char *name, ISState *states,
 * ***********************************************************************************/
 bool SteelDrive::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         // Set Accelration
-        if (!strcmp(name, AccelerationNP.name))
+        if (strcmp(name, AccelerationNP.name) == 0)
         {
             if (setAcceleration((int)values[0]))
             {
@@ -1146,12 +1134,12 @@ bool SteelDrive::ISNewNumber(const char *dev, const char *name, double values[],
         }
 
         // Set Temperature Settings
-        if (!strcmp(name, TemperatureSettingNP.name))
+        if (strcmp(name, TemperatureSettingNP.name) == 0)
         {
             // Coeff is only needed when we enable or disable the temperature compensation. Here we only set the # of samples
             unsigned int targetSamples;
 
-            if (!strcmp(names[0], TemperatureSettingN[FOCUS_T_SAMPLES].name))
+            if (strcmp(names[0], TemperatureSettingN[FOCUS_T_SAMPLES].name) == 0)
                 targetSamples = (int)values[0];
             else
                 targetSamples = (int)values[1];
@@ -1179,7 +1167,7 @@ bool SteelDrive::ISNewNumber(const char *dev, const char *name, double values[],
         }
 
         // Set Custom Settings
-        if (!strcmp(name, CustomSettingNP.name))
+        if (strcmp(name, CustomSettingNP.name) == 0)
         {
             int i = IUFindOnSwitchIndex(&ModelSP);
 
@@ -1187,13 +1175,14 @@ bool SteelDrive::ISNewNumber(const char *dev, const char *name, double values[],
             if (i != 4)
             {
                 CustomSettingNP.s = IPS_IDLE;
-                DEBUG(INDI::Logger::DBG_WARNING, "You can not set custom values for a non-custom focuser.");
+                LOG_WARN("You can not set custom values for a non-custom focuser.");
                 IDSetNumber(&CustomSettingNP, nullptr);
                 return false;
             }
 
             double maxTrip, gearRatio;
-            if (!strcmp(names[0], CustomSettingN[FOCUS_MAX_TRIP].name))
+
+            if (strcmp(names[0], CustomSettingN[FOCUS_MAX_TRIP].name) == 0)
             {
                 maxTrip   = values[0];
                 gearRatio = values[1];
@@ -1222,7 +1211,7 @@ bool SteelDrive::ISNewNumber(const char *dev, const char *name, double values[],
         }
 
         // Set Sync Position
-        if (!strcmp(name, SyncNP.name))
+        if (strcmp(name, SyncNP.name) == 0)
         {
             if (Sync((unsigned int)values[0]))
             {
@@ -1284,7 +1273,7 @@ bool SteelDrive::SetFocuserSpeed(int speed)
 
     rc = setSpeed(speed);
 
-    if (rc == false)
+    if (!rc)
         return false;
 
     currentSpeed = speed;
@@ -1301,7 +1290,7 @@ IPState SteelDrive::MoveFocuser(FocusDirection dir, int speed, uint16_t duration
     {
         bool rc = setSpeed(speed);
 
-        if (rc == false)
+        if (!rc)
             return IPS_ALERT;
     }
 
@@ -1328,7 +1317,7 @@ IPState SteelDrive::MoveAbsFocuser(uint32_t targetTicks)
 
     rc = moveFocuser(targetPos);
 
-    if (rc == false)
+    if (!rc)
         return IPS_ALERT;
 
     FocusAbsPosNP.s = IPS_BUSY;
@@ -1348,7 +1337,7 @@ IPState SteelDrive::MoveRelFocuser(FocusDirection dir, uint32_t ticks)
 
     rc = moveFocuser(newPosition);
 
-    if (rc == false)
+    if (!rc)
         return IPS_ALERT;
 
     FocusRelPosN[0].value = ticks;
@@ -1360,7 +1349,7 @@ IPState SteelDrive::MoveRelFocuser(FocusDirection dir, uint32_t ticks)
 
 void SteelDrive::TimerHit()
 {
-    if (isConnected() == false)
+    if (!isConnected())
         return;
 
     bool rc = updatePosition();
@@ -1457,7 +1446,7 @@ void SteelDrive::TimerHit()
             IDSetNumber(&FocusAbsPosNP, nullptr);
             IDSetNumber(&FocusRelPosNP, nullptr);
             lastPos = FocusAbsPosN[0].value;
-            DEBUG(INDI::Logger::DBG_SESSION, "Focuser reached requested position.");
+            LOG_INFO("Focuser reached requested position.");
         }
     }
 
@@ -1474,12 +1463,12 @@ bool SteelDrive::AbortFocuser()
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD :F3STOP0#");
+    LOG_DEBUG("CMD :F3STOP0#");
 
     if (!sim && (rc = tty_write(PortFD, ":F3STOP0#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":F3STOP0# Stop error: %s.", errstr);
+        LOGF_ERROR(":F3STOP0# Stop error: %s.", errstr);
         return false;
     }
 
@@ -1503,7 +1492,7 @@ float SteelDrive::CalcTimeLeft(timeval start, float req)
 {
     double timesince;
     double timeleft;
-    struct timeval now;
+    struct timeval now { 0, 0 };
     gettimeofday(&now, nullptr);
 
     timesince =
@@ -1540,12 +1529,12 @@ bool SteelDrive::saveFocuserConfig()
 
     tcflush(PortFD, TCIOFLUSH);
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "CMD (:FFPOWER#)");
+    LOG_DEBUG("CMD (:FFPOWER#)");
 
     if (!sim && (rc = tty_write(PortFD, ":FFPOWER#", STEELDRIVE_CMD, &nbytes_written)) != TTY_OK)
     {
         tty_error_msg(rc, errstr, MAXRBUF);
-        DEBUGF(INDI::Logger::DBG_ERROR, ":FFPOWER# saveFocuserConfig error: %s.", errstr);
+        LOGF_ERROR(":FFPOWER# saveFocuserConfig error: %s.", errstr);
         return false;
     }
 

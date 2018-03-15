@@ -24,18 +24,24 @@
 
 #include <stdint.h>
 
+// Alias
+using FI = INDI::FocuserInterface;
+
 /**
- * \class INDI::FocuserInterface
+ * \class FocuserInterface
    \brief Provides interface to implement focuser functionality.
 
    A focuser can be an independent device, or an embedded focuser within another device (e.g. Camera).
 
-   \e IMPORTANT: initFocuserProperties() must be called before any other function to initialize the focuser properties.
+   \e IMPORTANT: FI::initProperties() must be called before any other function to initialize the focuser properties.
 
-   \e IMPORTANT: processFocuserNumber() and processFocuserSwitch() must be called in your driver's ISNewNumber() and ISNewSwitch functions recepectively.
+   \e IMPORTANT: FI::processNumber() and FI::processSwitch() must be called in your driver's ISNewNumber() and ISNewSwitch functions recepectively.
 \author Jasem Mutlaq
 */
-class INDI::FocuserInterface
+namespace INDI
+{
+
+class FocuserInterface
 {
   public:
     enum FocusDirection
@@ -55,13 +61,13 @@ class INDI::FocuserInterface
     /**
      * @brief GetFocuserCapability returns the capability of the focuser
      */
-    uint32_t GetFocuserCapability() const { return capability; }
+    uint32_t GetCapability() const { return capability; }
 
     /**
-     * @brief SetFocuserCapability sets the focuser capabilities. All capabilities must be initialized.
+     * @brief FI::SetCapability sets the focuser capabilities. All capabilities must be initialized.
      * @param cap pointer to focuser capability struct.
      */
-    void SetFocuserCapability(uint32_t cap);
+    void SetCapability(uint32_t cap) { capability = cap; }
 
     /**
      * @return True if the focuser has absolute position encoders.
@@ -84,22 +90,27 @@ class INDI::FocuserInterface
     bool HasVariableSpeed() { return capability & FOCUSER_HAS_VARIABLE_SPEED; }
 
   protected:
-    FocuserInterface();
-    virtual ~FocuserInterface();
+    explicit FocuserInterface(DefaultDevice *defaultDevice);
+    virtual ~FocuserInterface() = default;
 
     /**
      * \brief Initilize focuser properties. It is recommended to call this function within
      * initProperties() of your primary device
-     * \param deviceName Name of the primary device
      * \param groupName Group or tab name to be used to define focuser properties.
      */
-    void initFocuserProperties(const char *deviceName, const char *groupName);
+    void initProperties(const char *groupName);
+
+    /**
+     * @brief updateProperties Define or Delete Rotator properties based on the connection status of the base device
+     * @return True if successful, false otherwise.
+     */
+    bool updateProperties();
 
     /** \brief Process focus number properties */
-    bool processFocuserNumber(const char *dev, const char *name, double values[], char *names[], int n);
+    bool processNumber(const char *dev, const char *name, double values[], char *names[], int n);
 
     /** \brief Process focus switch properties */
-    bool processFocuserSwitch(const char *dev, const char *name, ISState *states, char *names[], int n);
+    bool processSwitch(const char *dev, const char *name, ISState *states, char *names[], int n);
 
     /**
      * @brief SetFocuserSpeed Set Focuser speed
@@ -113,7 +124,7 @@ class INDI::FocuserInterface
      * finite duration.
      * \param dir Direction of focuser, either FOCUS_INWARD or FOCUS_OUTWARD.
      * \param speed Speed of focuser if supported by the focuser.
-     * \param duration The timeout in milliseconds before the focus motion halts.
+     * \param duration The timeout in milliseconds before the focus motion halts. Pass 0 to move indefinitely.
      * \return Return IPS_OK if motion is completed and focuser reached requested position.
      * Return IPS_BUSY if focuser started motion to requested position and is in progress.
      * Return IPS_ALERT if there is an error.
@@ -127,7 +138,7 @@ class INDI::FocuserInterface
      * IPS_BUSY if focuser started motion to requested position and is in progress.
      * Return IPS_ALERT if there is an error.
      */
-    virtual IPState MoveAbsFocuser(uint32_t ticks);
+    virtual IPState MoveAbsFocuser(uint32_t targetTicks);
 
     /**
      * \brief MoveFocuser the focuser to an relative position.
@@ -160,6 +171,8 @@ class INDI::FocuserInterface
 
     uint32_t capability;
 
-    char focuserName[MAXINDIDEVICE];
-    double lastTimerValue;
+    double lastTimerValue = { 0 };
+
+    DefaultDevice *m_defaultDevice { nullptr };
 };
+}

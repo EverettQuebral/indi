@@ -30,6 +30,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110 - 1301  USA
 
 <p>INDI is a simple XML-like communications protocol described for interactive and automated remote control of diverse instrumentation. INDI is small, easy to parse, and stateless.</p>
 <p>In the INDI paradigm each Device poses all command and status functions in terms of settings and getting Properties.
+
 Each Property is a vector of one or more names members. Each property has a current value vector; a target value vector; provides information about how it should be sequenced with
 respect to other Properties to accomplish one coordinated unit of observation; and provides hints as to how it might be displayed for interactive manipulation in a GUI.</p>
 
@@ -40,7 +41,7 @@ For a complete review on the INDI protocol, please refer to the INDI <a href="ht
 
 \section Audience Intended Audience
 
-INDI is intended for developers who seek a scalable API for device control and automation. Hardware drivers written under INDI can be used under any INDI-compatible client. INDI serves as a backend only, you need frontend clients to control devices. Current clients include <a href="http://edu.kde.org/kstars">KStars</a>, <a href="http://www.clearyskyinstitute.com/xephem">Xephem</a>, <a href="http://pygtkindiclient.sourceforge.net/">DCD</a>, and <a href="http://www.stargazing.net/astropc">Cartes du Ciel</a>.
+INDI is intended for developers who seek a scalable API for device control and automation. Hardware drivers written under INDI can be used under any INDI-compatible client. INDI serves as a backend only, you need frontend clients to control devices. Current clients include <a href="http://edu.kde.org/kstars">KStars</a>, <a href="http://www.clearyskyinstitute.com/xephem">Xephem</a>, and <a href="http://www.stargazing.net/astropc">Cartes du Ciel</a>.
 
 \section Development Developing under INDI
 
@@ -57,15 +58,21 @@ INDI is intended for developers who seek a scalable API for device control and a
 <li><a href="classINDI_1_1GuiderInterface.html">Guider</a></li>
 <li><a href="classINDI_1_1FilterWheel.html">Filter Wheel</a></li>
 <li><a href="classINDI_1_1Focuser.html">Focuser</a></li>
+<li><a href="classINDI_1_1Rotator.html">Rotator</a></li>
+<li><a href="classINDI_1_1Detector.html">Detector</a></li>
 <li><a href="classINDI_1_1Dome.html">Dome</a></li>
+<li><a href="classLightBoxInterface.html">Light Panel</a></li>
 <li><a href="classINDI_1_1Weather.html">Weather</a></li>
 <li><a href="classINDI_1_1GPS.html">GPS</a></li>
 <li><a href="classINDI_1_1USBDevice.html">USB</a></li>
 </ul>
+<li>@ref Connection "INDI Connection Interface"</li>
+<li>@ref INDI::SP "INDI Standard Properties"</li>
 <li><a href="md_libs_indibase_alignment_alignment_white_paper.html">INDI Alignment Subsystem</a></li>
 <li><a href="structINDI_1_1Logger.html">INDI Debugging & Logging API</a></li>
 <li><a href="indicom_8h.html">INDI Common Routine Library</a></li>
 <li><a href="lilxml_8h.html">INDI LilXML Library</a></li>
+<li><a href="classStreamManager.html">INDI Stream Manager for video encoding, streaming, and recording.</a></li>
 <li><a href="group__configFunctions.html">Configuration</a></li>
 </ul>
 
@@ -77,14 +84,15 @@ INDI Library includes a number of tutorials to illustrate development of INDI dr
 
 Simulators provide a great framework to test drivers and equipment alike. INDI Library provides the following simulators:
 <ul>
-<li><b>Telescope Simulator</b>: Offers GOTO capability, motion control, guiding, and ability to set Periodic Error (PE) which is read by the CCD simulator when generating images.</li>
-<li><b>CCD Simulator</b>: Offers a very flexible CCD simulator with a primary CCD chip and a guide chip. The simulator generate images based on the RA & DEC coordinates it
+<li><b>@ref ScopeSim "Telescope Simulator"</b>: Offers GOTO capability, motion control, guiding, and ability to set Periodic Error (PE) which is read by the CCD simulator when generating images.</li>
+<li><b>@ref CCDSim "CCD Simulator"</b>: Offers a very flexible CCD simulator with a primary CCD chip and a guide chip. The simulator generate images based on the RA & DEC coordinates it
  snoops from the telescope driver using General Star Catalog (GSC). Please note that you must install GSC for the CCD simulator to work properly. Furthermore,
  The simulator snoops FWHM from the focuser simulator which affects the generated images focus. All images are generated in standard FITS format.</li>
-<li><b>Filter Wheel Simulator</b>: Offers a simple simulator to change filter wheels and their corresponding designations.</li>
-<li><b>Focuser Simulator</b>: Offers a simple simualtor for an absolute position focuser. It generates a simulated FWHM value that may be used by other simulator such as the CCD simulator.</li>
-<li><b>Dome Simulator</b>: Offers a simple simulator for an absolute position dome with shutter.
-<li><b>GPS Simulator</b>: Offers a simple simulator for GPS devices that send time and location data to the client and other drivers.
+<li><b>@ref GuideSim "Guide Simulator"</b>: Simple dedicated Guide Simulator.
+<li><b>@ref FilterSim "Filter Wheel Simulator"</b>: Offers a simple simulator to change filter wheels and their corresponding designations.</li>
+<li><b>@ref FocusSim "Focuser Simulator"</b>: Offers a simple simualtor for an absolute position focuser. It generates a simulated FWHM value that may be used by other simulator such as the CCD simulator.</li>
+<li><b>@ref DomeSim "Dome Simulator"</b>: Offers a simple simulator for an absolute position dome with shutter.
+<li><b>@ref GPSSimulator "GPS Simulator"</b>: Offers a simple simulator for GPS devices that send time and location data to the client and other drivers.
 </ul>
 
 \section Help
@@ -93,6 +101,9 @@ You can find information on INDI development in the <a href="http://www.indilib.
 
 \author Jasem Mutlaq
 \author Elwood Downey
+
+For a full list of contributors, please check <a href="https://github.com/indilib/indi/graphs/contributors">Contributors page</a> on Github.
+
 */
 
 /** \file indiapi.h
@@ -109,52 +120,55 @@ You can find information on INDI development in the <a href="http://www.indilib.
 
 /* INDI Library version */
 #define INDI_VERSION_MAJOR   1
-#define INDI_VERSION_MINOR   4
-#define INDI_VERSION_RELEASE 1
+#define INDI_VERSION_MINOR   6
+#define INDI_VERSION_RELEASE 3
 
 /*******************************************************************************
  * Manifest constants
  */
 
-/** \typedef ISState
-    \brief Switch state.
-*/
+/**
+ * @typedef ISState
+ * @brief Switch state.
+ */
 typedef enum {
-    ISS_OFF, /*!< Switch is OFF */
-    ISS_ON   /*!< Switch is ON */
-} ISState;   /* switch state */
+    ISS_OFF = 0, /*!< Switch is OFF */
+    ISS_ON       /*!< Switch is ON */
+} ISState;
 
-/** \typedef IPState
-    \brief Property state.
-*/
+/**
+ * @typedef IPState
+ * @brief Property state.
+ */
 typedef enum {
-    IPS_IDLE, /*!< State is idle */
-    IPS_OK,   /*!< State is ok */
-    IPS_BUSY, /*!< State is busy */
-    IPS_ALERT /*!< State is alert */
-} IPState;    /* property state */
+    IPS_IDLE = 0, /*!< State is idle */
+    IPS_OK,       /*!< State is ok */
+    IPS_BUSY,     /*!< State is busy */
+    IPS_ALERT     /*!< State is alert */
+} IPState;
 
-/** \typedef ISRule
-    \brief Switch vector rule hint.
-*/
+/**
+ * @typedef ISRule
+ * @brief Switch vector rule hint.
+ */
 typedef enum {
     ISR_1OFMANY, /*!< Only 1 switch of many can be ON (e.g. radio buttons) */
     ISR_ATMOST1, /*!< At most one switch can be ON, but all switches can be off. It is similar to ISR_1OFMANY with the exception that all switches can be off. */
     ISR_NOFMANY  /*!< Any number of switches can be ON (e.g. check boxes) */
-} ISRule;        /* switch vector rule hint */
+} ISRule;
 
-/** \typedef IPerm
-    \brief Permission hint, with respect to client.
-*/
+/**
+ * @typedef IPerm
+ * @brief Permission hint, with respect to client.
+ */
 typedef enum {
     IP_RO, /*!< Read Only */
     IP_WO, /*!< Write Only */
     IP_RW  /*!< Read & Write */
-} IPerm;   /* permission hint, WRT client */
+} IPerm;
 
-/* The XML strings for these attributes may be any length but implementations
- * are only obligued to support these lengths for the various string attributes.
- */
+// The XML strings for these attributes may be any length but implementations
+// are only obligued to support these lengths for the various string attributes.
 #define MAXINDINAME    64
 #define MAXINDILABEL   64
 #define MAXINDIDEVICE  64
@@ -185,245 +199,283 @@ typedef enum {
  *  "  0:01:02"    %9.6m
  */
 
-/** \struct IText
-    \brief One text descriptor.
-*/
+/**
+ * @struct IText
+ * @brief One text descriptor.
+ */
 typedef struct
 {
-    /** index name */
+    /** Index name */
     char name[MAXINDINAME];
-    /** short description */
+    /** Short description */
     char label[MAXINDILABEL];
-    /** malloced text string */
+    /** Allocated text string */
     char *text;
-    /** pointer to parent */
+    /** Pointer to parent */
     struct _ITextVectorProperty *tvp;
-    /** handy place to hang helper info */
+    /** Helper info */
     void *aux0;
-    /** handy place to hang helper info */
+    /** Helper info */
     void *aux1;
 } IText;
 
-/** \struct _ITextVectorProperty
-    \brief Text vector property descriptor.
-*/
+/**
+ * @struct _ITextVectorProperty
+ * @brief Text vector property descriptor.
+ */
 typedef struct _ITextVectorProperty
 {
-    /** device name */
+    /** Device name */
     char device[MAXINDIDEVICE];
-    /** property name */
+    /** Property name */
     char name[MAXINDINAME];
-    /** short description */
+    /** Short description */
     char label[MAXINDILABEL];
     /** GUI grouping hint */
     char group[MAXINDIGROUP];
-    /** client accessibility hint */
+    /** Client accessibility hint */
     IPerm p;
-    /** current max time to change, secs */
+    /** Current max time to change, secs */
     double timeout;
-    /** current property state */
+    /** Current property state */
     IPState s;
-    /** texts comprising this vector */
+    /** Texts comprising this vector */
     IText *tp;
-    /** dimension of tp[] */
+    /** Dimension of tp[] */
     int ntp;
     /** ISO 8601 timestamp of this event */
     char timestamp[MAXINDITSTAMP];
-    /** handy place to hang helper info */
+    /** Helper info */
     void *aux;
 } ITextVectorProperty;
 
-/** \struct INumber
-    \brief One number descriptor.
-*/
+/**
+ * @struct INumber
+ * @brief One number descriptor.
+ */
 typedef struct
 {
-    char name[MAXINDINAME];             /** index name */
-    char label[MAXINDILABEL];           /** short description */
-    char format[MAXINDIFORMAT];         /** GUI display format, see above */
-    double min, max;                    /** range, ignore if min == max */
-    double step;                        /** step size, ignore if step == 0 */
-    double value;                       /** current value */
-    struct _INumberVectorProperty *nvp; /** pointer to parent */
-    void *aux0, *aux1;                  /** handy place to hang helper info */
+    /** Index name */
+    char name[MAXINDINAME];
+    /** Short description */
+    char label[MAXINDILABEL];
+    /** GUI display format, see above */
+    char format[MAXINDIFORMAT];
+    /** Range min, ignored if min == max */
+    double min;
+    /** Range max, ignored if min == max */
+    double max;
+    /** Step size, ignored if step == 0 */
+    double step;
+    /** Current value */
+    double value;
+    /** Pointer to parent */
+    struct _INumberVectorProperty *nvp;
+    /** Helper info */
+    void *aux0;
+    /** Helper info */
+    void *aux1;
 } INumber;
 
-/** \struct _INumberVectorProperty
-    \brief Number vector property descriptor.
-
-    INumber.format may be any printf-style appropriate for double or style "m" to create sexigesimal using the form "%\<w\>.\<f\>m" where:\n
-    \<w\> is the total field width.\n
-    \<f\> is the width of the fraction. valid values are:\n
-        9  ->  \<w\>:mm:ss.ss \n
-        8  ->  \<w\>:mm:ss.s \n
-        6  ->  \<w\>:mm:ss \n
-        5  ->  \<w\>:mm.m \n
-        3  ->  \<w\>:mm \n
-
-   examples:\n
-
-   To produce "-123:45", use \%7.3m \n
-   To produce "  0:01:02", use \%9.6m
-*/
+/**
+ * @struct _INumberVectorProperty
+ * @brief Number vector property descriptor.
+ *
+ * INumber.format may be any printf-style appropriate for double or style
+ * "m" to create sexigesimal using the form "%\<w\>.\<f\>m" where:\n
+ * \<w\> is the total field width.\n
+ * \<f\> is the width of the fraction. valid values are:\n
+ *       9  ->  \<w\>:mm:ss.ss \n
+ *       8  ->  \<w\>:mm:ss.s \n
+ *       6  ->  \<w\>:mm:ss \n
+ *       5  ->  \<w\>:mm.m \n
+ *       3  ->  \<w\>:mm \n
+ *
+ * examples:\n
+ *
+ * To produce "-123:45", use \%7.3m \n
+ * To produce "  0:01:02", use \%9.6m
+ */
 typedef struct _INumberVectorProperty
 {
-    /** device name */
+    /** Device name */
     char device[MAXINDIDEVICE];
-    /** property name */
+    /** Property name */
     char name[MAXINDINAME];
-    /** short description */
+    /** Short description */
     char label[MAXINDILABEL];
     /** GUI grouping hint */
     char group[MAXINDIGROUP];
-    /** client accessibility hint */
+    /** Client accessibility hint */
     IPerm p;
-    /** current max time to change, secs */
+    /** Current max time to change, secs */
     double timeout;
     /** current property state */
     IPState s;
-    /** numbers comprising this vector */
+    /** Numbers comprising this vector */
     INumber *np;
-    /** dimension of np[] */
+    /** Dimension of np[] */
     int nnp;
     /** ISO 8601 timestamp of this event */
     char timestamp[MAXINDITSTAMP];
-    /** handy place to hang helper info */
+    /** Helper info */
     void *aux;
 } INumberVectorProperty;
 
-/** \struct ISwitch
-    \brief One switch descriptor.
-*/
+/**
+ * @struct ISwitch
+ * @brief One switch descriptor.
+ */
 typedef struct
 {
-    char name[MAXINDINAME];             /** index name */
-    char label[MAXINDILABEL];           /** this switch's label */
-    ISState s;                          /** this switch's state */
-    struct _ISwitchVectorProperty *svp; /** pointer to parent */
-    void *aux;                          /** handy place to hang helper info */
+    /** Index name */
+    char name[MAXINDINAME];
+    /** Switch label */
+    char label[MAXINDILABEL];
+    /** Switch state */
+    ISState s;
+    /** Pointer to parent */
+    struct _ISwitchVectorProperty *svp;
+    /** Helper info */
+    void *aux;
 } ISwitch;
 
-/** \struct _ISwitchVectorProperty
-    \brief Switch vector property descriptor.
-*/
+/**
+ * @struct _ISwitchVectorProperty
+ * @brief Switch vector property descriptor.
+ */
 typedef struct _ISwitchVectorProperty
 {
-    /** device name */
+    /** Device name */
     char device[MAXINDIDEVICE];
-    /** property name */
+    /** Property name */
     char name[MAXINDINAME];
-    /** short description */
+    /** Short description */
     char label[MAXINDILABEL];
     /** GUI grouping hint */
     char group[MAXINDIGROUP];
-    /** client accessibility hint */
+    /** Client accessibility hint */
     IPerm p;
-    /** switch behavior hint */
+    /** Switch behavior hint */
     ISRule r;
-    /** current max time to change, secs */
+    /** Current max time to change, secs */
     double timeout;
-    /** current property state */
+    /** Current property state */
     IPState s;
-    /** switches comprising this vector */
+    /** Switches comprising this vector */
     ISwitch *sp;
-    /** dimension of sp[] */
+    /** Dimension of sp[] */
     int nsp;
     /** ISO 8601 timestamp of this event */
     char timestamp[MAXINDITSTAMP];
-    /** handy place to hang helper info */
+    /** Helper info */
     void *aux;
 } ISwitchVectorProperty;
 
-/** \struct ILight
-    \brief One light descriptor.
-*/
+/**
+ * @struct ILight
+ * @brief One light descriptor.
+ */
 typedef struct
 {
-    char name[MAXINDINAME];            /** index name */
-    char label[MAXINDILABEL];          /** this lights's label */
-    IPState s;                         /** this lights's state */
-    struct _ILightVectorProperty *lvp; /** pointer to parent */
-    void *aux;                         /** handy place to hang helper info */
+    /** Index name */
+    char name[MAXINDINAME];
+    /** Light labels */
+    char label[MAXINDILABEL];
+    /** Light state */
+    IPState s;
+    /** Pointer to parent */
+    struct _ILightVectorProperty *lvp;
+    /** Helper info */
+    void *aux;
 } ILight;
 
-/** \struct _ILightVectorProperty
-    \brief Light vector property descriptor.
-*/
+/**
+ * @struct _ILightVectorProperty
+ * @brief Light vector property descriptor.
+ */
 typedef struct _ILightVectorProperty
 {
-    /** device name */
+    /** Device name */
     char device[MAXINDIDEVICE];
-    /** property name */
+    /** Property name */
     char name[MAXINDINAME];
-    /** short description */
+    /** Short description */
     char label[MAXINDILABEL];
     /** GUI grouping hint */
     char group[MAXINDIGROUP];
-    /** current property state */
+    /** Current property state */
     IPState s;
-    /** lights comprising this vector */
+    /** Lights comprising this vector */
     ILight *lp;
-    /** dimension of lp[] */
+    /** Dimension of lp[] */
     int nlp;
     /** ISO 8601 timestamp of this event */
     char timestamp[MAXINDITSTAMP];
-    /** handy place to hang helper info */
+    /** Helper info */
     void *aux;
 } ILightVectorProperty;
 
-/** \struct IBLOB
-    \brief One Blob (Binary Large Object) descriptor.
+/**
+ * @struct IBLOB
+ * @brief One Blob (Binary Large Object) descriptor.
  */
 typedef struct /* one BLOB descriptor */
 {
-    /** index name */
+    /** Index name */
     char name[MAXINDINAME];
-    /** this BLOB's label */
+    /** Blob label */
     char label[MAXINDILABEL];
-    /** format attr */
+    /** Format attr */
     char format[MAXINDIBLOBFMT];
-    /** malloced binary large object bytes */
+    /** Allocated binary large object bytes */
     void *blob;
-    /** bytes in blob */
+    /** Blob size in bytes */
     int bloblen;
-    /** n uncompressed bytes */
+    /** N uncompressed bytes */
     int size;
-    /** pointer to parent */
+    /** Pointer to parent */
     struct _IBLOBVectorProperty *bvp;
-    /** handy place to hang helper info */
-    void *aux0, *aux1, *aux2;
+    /** Helper info */
+    void *aux0;
+    /** Helper info */
+    void *aux1;
+    /** Helper info */
+    void *aux2;
 } IBLOB;
 
-/** \struct _IBLOBVectorProperty
-    \brief BLOB (Binary Large Object) vector property descriptor.
+/**
+ * @struct _IBLOBVectorProperty
+ * @brief BLOB (Binary Large Object) vector property descriptor.
  */
-
 typedef struct _IBLOBVectorProperty /* BLOB vector property descriptor */
 {
-    /** device name */
+    /** Device name */
     char device[MAXINDIDEVICE];
-    /** property name */
+    /** Property name */
     char name[MAXINDINAME];
-    /** short description */
+    /** Short description */
     char label[MAXINDILABEL];
     /** GUI grouping hint */
     char group[MAXINDIGROUP];
-    /** client accessibility hint */
+    /** Client accessibility hint */
     IPerm p;
-    /** current max time to change, secs */
+    /** Current max time to change, secs */
     double timeout;
-    /** current property state */
+    /** Current property state */
     IPState s;
     /** BLOBs comprising this vector */
     IBLOB *bp;
-    /** dimension of bp[] */
+    /** Dimension of bp[] */
     int nbp;
     /** ISO 8601 timestamp of this event */
     char timestamp[MAXINDITSTAMP];
-    /** handy place to hang helper info */
+    /** Helper info */
     void *aux;
 } IBLOBVectorProperty;
 
-/** \brief Handy macro to find the number of elements in array a[]. Must be used with actual array, not pointer.
-*/
+/**
+ * @brief Handy macro to find the number of elements in array a[]. Must be used
+ * with actual array, not pointer.
+ */
 #define NARRAY(a) (sizeof(a) / sizeof(a[0]))

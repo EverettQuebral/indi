@@ -21,15 +21,17 @@
 
 #include "indicom.h"
 
-#include <math.h>
-#include <string.h>
+#include <libnova/transform.h>
+
+#include <cmath>
+#include <cstring>
 
 LX200FS2::LX200FS2() : LX200Generic()
 {
     setVersion(2, 1);
 
     SetTelescopeCapability(
-        TELESCOPE_CAN_PARK | TELESCOPE_CAN_SYNC | TELESCOPE_CAN_GOTO | TELESCOPE_CAN_ABORT | TELESCOPE_HAS_LOCATION, 4);
+        TELESCOPE_CAN_PARK | TELESCOPE_CAN_SYNC | TELESCOPE_CAN_GOTO | TELESCOPE_HAS_LOCATION | TELESCOPE_CAN_ABORT, 4);
 }
 
 bool LX200FS2::initProperties()
@@ -81,7 +83,7 @@ bool LX200FS2::updateProperties()
 
 bool LX200FS2::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (!strcmp(name, SlewAccuracyNP.name))
         {
@@ -103,7 +105,7 @@ bool LX200FS2::ISNewNumber(const char *dev, const char *name, double values[], c
 
 const char *LX200FS2::getDefaultName()
 {
-    return (char *)"Astro-Electronic FS-2";
+    return (const char *)"Astro-Electronic FS-2";
 }
 
 bool LX200FS2::isSlewComplete()
@@ -127,21 +129,6 @@ bool LX200FS2::saveConfigItems(FILE *fp)
     return true;
 }
 
-bool LX200FS2::updateLocation(double latitude, double longitude, double elevation)
-{
-    LocationN[LOCATION_ELEVATION].value = elevation;
-    LocationN[LOCATION_LONGITUDE].value = longitude;
-    LocationN[LOCATION_LATITUDE].value  = latitude;
-    return true;
-}
-
-bool LX200FS2::updateTime(ln_date *utc, double utc_offset)
-{
-    INDI_UNUSED(utc);
-    INDI_UNUSED(utc_offset);
-    return true;
-}
-
 bool LX200FS2::Park()
 {
     double parkAZ  = GetAxis1Park();
@@ -150,7 +137,7 @@ bool LX200FS2::Park()
     char AzStr[16], AltStr[16];
     fs_sexa(AzStr, parkAZ, 2, 3600);
     fs_sexa(AltStr, parkAlt, 2, 3600);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "Parking to Az (%s) Alt (%s)...", AzStr, AltStr);
+    LOGF_DEBUG("Parking to Az (%s) Alt (%s)...", AzStr, AltStr);
 
     ln_hrz_posn horizontalPos;
     // Libnova south = 0, west = 90, north = 180, east = 270
@@ -174,12 +161,12 @@ bool LX200FS2::Park()
     char RAStr[16], DEStr[16];
     fs_sexa(RAStr, equatorialPos.ra / 15.0, 2, 3600);
     fs_sexa(DEStr, equatorialPos.dec, 2, 3600);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "Parking to RA (%s) DEC (%s)...", RAStr, DEStr);
+    LOGF_DEBUG("Parking to RA (%s) DEC (%s)...", RAStr, DEStr);
 
     if (Goto(equatorialPos.ra / 15.0, equatorialPos.dec))
     {
         TrackState = SCOPE_PARKING;
-        DEBUG(INDI::Logger::DBG_SESSION, "Parking is in progress...");
+        LOG_INFO("Parking is in progress...");
 
         return true;
     }
@@ -195,7 +182,7 @@ bool LX200FS2::UnPark()
     char AzStr[16], AltStr[16];
     fs_sexa(AzStr, parkAZ, 2, 3600);
     fs_sexa(AltStr, parkAlt, 2, 3600);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "Unparking from Az (%s) Alt (%s)...", AzStr, AltStr);
+    LOGF_DEBUG("Unparking from Az (%s) Alt (%s)...", AzStr, AltStr);
 
     ln_hrz_posn horizontalPos;
     // Libnova south = 0, west = 90, north = 180, east = 270
@@ -219,7 +206,7 @@ bool LX200FS2::UnPark()
     char RAStr[16], DEStr[16];
     fs_sexa(RAStr, equatorialPos.ra / 15.0, 2, 3600);
     fs_sexa(DEStr, equatorialPos.dec, 2, 3600);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "Syncing to parked coordinates RA (%s) DEC (%s)...", RAStr, DEStr);
+    LOGF_DEBUG("Syncing to parked coordinates RA (%s) DEC (%s)...", RAStr, DEStr);
 
     if (Sync(equatorialPos.ra / 15.0, equatorialPos.dec))
     {
@@ -255,7 +242,7 @@ bool LX200FS2::SetCurrentPark()
     fs_sexa(AzStr, parkAZ, 2, 3600);
     fs_sexa(AltStr, parkAlt, 2, 3600);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "Setting current parking position to coordinates Az (%s) Alt (%s)...", AzStr,
+    LOGF_DEBUG("Setting current parking position to coordinates Az (%s) Alt (%s)...", AzStr,
            AltStr);
 
     SetAxis1Park(parkAZ);
@@ -272,5 +259,13 @@ bool LX200FS2::SetDefaultPark()
     // Altitude = latitude of observer
     SetAxis2Park(LocationN[LOCATION_LATITUDE].value);
 
+    return true;
+}
+
+bool LX200FS2::updateLocation(double latitude, double longitude, double elevation)
+{
+    INDI_UNUSED(latitude);
+    INDI_UNUSED(longitude);
+    INDI_UNUSED(elevation);
     return true;
 }

@@ -1,5 +1,7 @@
-/*******************************************************************************
- Copyright(c) 2010, 2011 Gerry Rozema, Jasem Mutlaq. All rights reserved.
+/******************************************************************************* 
+ Copyright(c) 2010-2018 Jasem Mutlaq. All rights reserved.
+
+ Copyright(c) 2010, 2011 Gerry Rozema. All rights reserved.
 
  Rapid Guide support added by CloudMakers, s. r. o.
  Copyright(c) 2013 CloudMakers, s. r. o. All rights reserved.
@@ -31,16 +33,22 @@
 #include <fitsio.h>
 
 #include <memory>
-#include <string.h>
+#include <cstring>
+#include <chrono>
 
 #include <stdint.h>
+
+#define WITH_EXPOSURE_LOOPING
 
 extern const char *IMAGE_SETTINGS_TAB;
 extern const char *IMAGE_INFO_TAB;
 extern const char *GUIDE_HEAD_TAB;
 extern const char *RAPIDGUIDE_TAB;
 
-class StreamRecorder;
+namespace INDI
+{
+
+class StreamManager;
 
 /**
  * @brief The CCDChip class provides functionality of a CCD Chip within a CCD.
@@ -354,11 +362,11 @@ class CCDChip
     float PixelSizey;
     /// Bytes per Pixel
     int BPP;
-    bool Interlaced;
-    uint8_t *RawFrame;
-    uint8_t *BinFrame;
-    int RawFrameSize;
-    bool SendCompressed;
+    bool Interlaced = false;
+    uint8_t *RawFrame = nullptr;
+    uint8_t *BinFrame = nullptr;
+    int RawFrameSize = 0;
+    bool SendCompressed = false;
     CCD_FRAME FrameType;
     double exposureDuration;
     timeval startExposureTime;
@@ -402,12 +410,12 @@ class CCDChip
     ISwitch ResetS[1];
     ISwitchVectorProperty ResetSP;
 
-    friend class INDI::CCD;
+    friend class CCD;
     friend class StreamRecoder;
 };
 
 /**
- * \class INDI::CCD
+ * \class CCD
  * \brief Class to provide general functionality of CCD cameras with a single CCD sensor, or a
  * primary CCD sensor in addition to a secondary CCD guide head.
  *
@@ -429,7 +437,7 @@ class CCDChip
  * \author Jasem Mutlaq, Gerry Rozema
  *
  */
-class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
+class CCD : public DefaultDevice, GuiderInterface
 {
   public:
     CCD();
@@ -447,6 +455,8 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
         CCD_HAS_BAYER      = 1 << 7, /*!< Does the CCD send color data in bayer format?  */
         CCD_HAS_STREAMING  = 1 << 8  /*!< Does the CCD support live video streaming?  */
     } CCDCapability;
+
+    typedef enum { UPLOAD_CLIENT, UPLOAD_LOCAL, UPLOAD_BOTH } CCD_UPLOAD_MODE;
 
     virtual bool initProperties();
     virtual bool updateProperties();
@@ -522,7 +532,7 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
      * Return 1 if setting the temperature to the requested value is complete.
      * \note Upon returning 0, the property becomes BUSY. Once the temperature reaches the requested
      * value, change the state to OK.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual int SetTemperature(double temperature);
 
@@ -530,7 +540,7 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
      * \brief Start exposing primary CCD chip
      * \param duration Duration in seconds
      * \return true if OK and exposure will take some time to complete, false on error.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual bool StartExposure(float duration);
 
@@ -538,14 +548,14 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
      * \brief Uploads target Chip exposed buffer as FITS to the client. Dervied classes should class
      * this function when an exposure is complete.
      * @param targetChip chip that contains upload image data
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual bool ExposureComplete(CCDChip *targetChip);
 
     /**
      * \brief Abort ongoing exposure
      * \return true is abort is successful, false otherwise.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual bool AbortExposure();
 
@@ -553,19 +563,19 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
      * \brief Start exposing guide CCD chip
      * \param duration Duration in seconds
      * \return true if OK and exposure will take some time to complete, false on error.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual bool StartGuideExposure(float duration);
 
     /**
      * \brief Abort ongoing exposure
      * \return true is abort is successful, false otherwise.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual bool AbortGuideExposure();
 
     /**
-     * \brief INDI::CCD calls this function when CCD Frame dimension needs to be updated in the
+     * \brief CCD calls this function when CCD Frame dimension needs to be updated in the
      * hardware. Derived classes should implement this function
      * \param x Subframe X coordinate in pixels.
      * \param y Subframe Y coordinate in pixels.
@@ -573,12 +583,12 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
      * \param h Subframe height in pixels.
      * \note (0,0) is defined as most left, top pixel in the subframe.
      * \return true is CCD chip update is successful, false otherwise.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual bool UpdateCCDFrame(int x, int y, int w, int h);
 
     /**
-     * \brief INDI::CCD calls this function when Guide head frame dimension is updated by the
+     * \brief CCD calls this function when Guide head frame dimension is updated by the
      * client. Derived classes should implement this function
      * \param x Subframe X coordinate in pixels.
      * \param y Subframe Y coordinate in pixels.
@@ -586,32 +596,32 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
      * \param h Subframe height in pixels.
      * \note (0,0) is defined as most left, top pixel in the subframe.
      * \return true is CCD chip update is successful, false otherwise.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual bool UpdateGuiderFrame(int x, int y, int w, int h);
 
     /**
-     * \brief INDI::CCD calls this function when CCD Binning needs to be updated in the hardware.
+     * \brief CCD calls this function when CCD Binning needs to be updated in the hardware.
      * Derived classes should implement this function
      * \param hor Horizontal binning.
      * \param ver Vertical binning.
      * \return true is CCD chip update is successful, false otherwise.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual bool UpdateCCDBin(int hor, int ver);
 
     /**
-     * \brief INDI::CCD calls this function when Guide head binning is updated by the client.
+     * \brief CCD calls this function when Guide head binning is updated by the client.
      * Derived classes should implement this function
      * \param hor Horizontal binning.
      * \param ver Vertical binning.
      * \return true is CCD chip update is successful, false otherwise.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      */
     virtual bool UpdateGuiderBin(int hor, int ver);
 
     /**
-     * \brief INDI::CCD calls this function when CCD frame type needs to be updated in the hardware.
+     * \brief CCD calls this function when CCD frame type needs to be updated in the hardware.
      * \param fType Frame type
      * \return true is CCD chip update is successful, false otherwise.
      * \note It is \e not mandatory to implement this function in the child class. The CCD hardware
@@ -621,7 +631,16 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
     virtual bool UpdateCCDFrameType(CCDChip::CCD_FRAME fType);
 
     /**
-     * \brief INDI::CCD calls this function when Guide frame type is updated by the client.
+     * \brief CCD calls this function when client upload mode switch is updated.
+     * \param mode upload mode. UPLOAD_CLIENT only sends the upload the client application. UPLOAD_BOTH saves the frame and uploads it to the client. UPLOAD_LOCAL only saves
+     * the frame locally.
+     * \return true if mode is changed successfully, false otherwise.
+     * \note By default this function is implemented in the base class and returns true. Override if necessary.
+     */
+    virtual bool UpdateCCDUploadMode(CCD_UPLOAD_MODE mode) { INDI_UNUSED(mode); return true; }
+
+    /**
+     * \brief CCD calls this function when Guide frame type is updated by the client.
      * \param fType Frame type
      * \return true is CCD chip update is successful, false otherwise.
      * \note It is \e not mandatory to implement this function in the child class. The CCD hardware
@@ -655,7 +674,7 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
     /**
      * \brief Guide northward for ms milliseconds
      * \param ms Duration in milliseconds.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      * \return True if successful, false otherwise.
      */
     virtual IPState GuideNorth(float ms);
@@ -663,7 +682,7 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
     /**
      * \brief Guide southward for ms milliseconds
      * \param ms Duration in milliseconds.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      * \return 0 if successful, -1 otherwise.
      */
     virtual IPState GuideSouth(float ms);
@@ -671,7 +690,7 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
     /**
      * \brief Guide easward for ms milliseconds
      * \param ms Duration in milliseconds.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      * \return 0 if successful, -1 otherwise.
      */
     virtual IPState GuideEast(float ms);
@@ -679,7 +698,7 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
     /**
      * \brief Guide westward for ms milliseconds
      * \param ms Duration in milliseconds.
-     * \note This function is not implemented in INDI::CCD, it must be implemented in the child class
+     * \note This function is not implemented in CCD, it must be implemented in the child class
      * \return 0 if successful, -1 otherwise.
      */
     virtual IPState GuideWest(float ms);
@@ -716,7 +735,7 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
      * </ul>
      *
      * To add additional information, override this function in the child class and ensure to call
-     * INDI::CCD::addFITSKeywords.
+     * CCD::addFITSKeywords.
      */
     virtual void addFITSKeywords(fitsfile *fptr, CCDChip *targetChip);
 
@@ -738,7 +757,13 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
 
     void GuideComplete(INDI_EQ_AXIS axis);
 
+    // Epoch Position
     double RA, Dec;
+
+    // J2000 Position
+    double J2000RA;
+    double J2000DE;
+
     double primaryFocalLength, primaryAperture, guiderFocalLength, guiderAperture;
     bool InExposure;
     bool InGuideExposure;
@@ -758,10 +783,18 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
     // Sky Quality
     double MPSAS;
 
+    // Rotator Angle
+    double RotatorAngle;
+
+    // Airmas
+    double Airmass;
+    double Latitude;
+    double Longitude;
+
     std::vector<std::string> FilterNames;
     int CurrentFilterSlot;
 
-    std::unique_ptr<StreamRecorder> Streamer;
+    std::unique_ptr<StreamManager> Streamer;
 
     CCDChip PrimaryCCD;
     CCDChip GuideCCD;
@@ -772,6 +805,13 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
 
     ITextVectorProperty ActiveDeviceTP;
     IText ActiveDeviceT[4];
+    enum
+    {
+        SNOOP_MOUNT,
+        SNOOP_ROTATOR,
+        SNOOP_FILTER_WHEEL,
+        SNOOP_SQM
+    };
 
     INumber TemperatureN[1];
     INumberVectorProperty TemperatureNP;
@@ -809,6 +849,23 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
     INumber CCDRotationN[1];
     INumberVectorProperty CCDRotationNP;
 
+#ifdef WITH_EXPOSURE_LOOPING
+    // Exposure Looping
+    ISwitch ExposureLoopS[2];
+    ISwitchVectorProperty ExposureLoopSP;
+    enum
+    {
+        EXPOSURE_LOOP_ON,
+        EXPOSURE_LOOP_OFF
+    };
+
+    // Exposure Looping Count
+    INumber ExposureLoopCountN[1];
+    INumberVectorProperty ExposureLoopCountNP;
+    double uploadTime = { 0 };
+    std::chrono::system_clock::time_point exposureLoopStartup;
+#endif
+
     // FITS Header
     IText FITSHeaderT[2];
     ITextVectorProperty FITSHeaderTP;
@@ -819,7 +876,7 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
     };
 
   private:
-    uint32_t capability;
+    uint32_t capability;    
 
     bool ValidCCDRotation;
 
@@ -827,5 +884,6 @@ class INDI::CCD : public INDI::DefaultDevice, INDI::GuiderInterface
     void getMinMax(double *min, double *max, CCDChip *targetChip);
     int getFileIndex(const char *dir, const char *prefix, const char *ext);
 
-    friend class ::StreamRecorder;
+    friend class StreamManager;
 };
+}

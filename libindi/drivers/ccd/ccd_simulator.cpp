@@ -1,4 +1,5 @@
 /*******************************************************************************
+  Copyright(c) 2017 Jasem Mutlaq. All rights reserved.
   Copyright(c) 2010 Gerry Rozema. All rights reserved.
 
  This library is free software; you can redistribute it and/or
@@ -17,11 +18,19 @@
 *******************************************************************************/
 
 #include "ccd_simulator.h"
+#include "indicom.h"
+#include "stream/streammanager.h"
 
-#include <libnova.h>
+#include "locale_compat.h"
 
-#include <locale.h>
-#include <math.h>
+#include <libnova/julian_day.h>
+#include <libnova/precession.h>
+
+#include <cmath>
+#include <unistd.h>
+
+pthread_cond_t cv         = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t condMutex = PTHREAD_MUTEX_INITIALIZER;
 
 // We declare an auto pointer to ccdsim.
 std::unique_ptr<CCDSim> ccdsim(new CCDSim());
@@ -33,19 +42,19 @@ void ISGetProperties(const char *dev)
     ccdsim->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    ccdsim->ISNewSwitch(dev, name, states, names, num);
+    ccdsim->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    ccdsim->ISNewText(dev, name, texts, names, num);
+    ccdsim->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    ccdsim->ISNewNumber(dev, name, values, names, num);
+    ccdsim->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -65,56 +74,18 @@ void ISSnoopDevice(XMLEle *root)
     ccdsim->ISSnoopDevice(root);
 }
 
-CCDSim::CCDSim()
-{
-    //ctor
-    testvalue         = 0;
-    AbortGuideFrame   = false;
-    AbortPrimaryFrame = false;
-    ShowStarField     = true;
+CCDSim::CCDSim() : INDI::FilterInterface(this)
+{    
+    currentRA  = RA;
+    currentDE = Dec;
 
-    uint32_t cap = 0;
+    streamPredicate = 0;
+    terminateThread = false;
 
-    cap |= CCD_CAN_ABORT;
-    cap |= CCD_CAN_BIN;
-    cap |= CCD_CAN_SUBFRAME;
-    cap |= CCD_HAS_COOLER;
-    cap |= CCD_HAS_GUIDE_HEAD;
-    cap |= CCD_HAS_SHUTTER;
-    cap |= CCD_HAS_ST4_PORT;
+    primaryFocalLength = 900; //  focal length of the telescope in millimeters
+    guiderFocalLength  = 300;
 
-    SetCCDCapability(cap);
-
-    polarError = 0;
-    polarDrift = 0;
-
-    usePE = false;
-    raPE  = RA;
-    decPE = Dec;
-
-    bias               = 1500;
-    maxnoise           = 20;
-    maxval             = 65000;
-    maxpix             = 0;
-    minpix             = 65000;
-    limitingmag        = 11.5;
-    saturationmag      = 2;
-    primaryFocalLength = 1280; //  focal length of the telescope in millimeters
-    OAGoffset          = 0;    //  An oag is offset this much from center of scope position (arcminutes);
-    skyglow            = 40;
-
-    seeing      = 3.5; //  fwhm of our stars
-    ImageScalex = 1.0; //  preset with a valid non-zero
-    ImageScaley = 1.0;
-    rotationCW  = 0;
     time(&RunStart);
-
-    //  Our PEPeriod is 8 minutes
-    //  and we have a 22 arcsecond swing
-    PEPeriod   = 8 * 60;
-    PEMax      = 11;
-    GuideRate  = 7; //  guide rate is 7 arcseconds per second
-    TimeFactor = 1;
 
     SimulatorSettingsNV = new INumberVectorProperty;
     TimeFactorSV        = new ISwitchVectorProperty;
@@ -149,30 +120,36 @@ bool CCDSim::SetupParms()
     rotationCW = SimulatorSettingsN[13].value;
 
     nbuf = PrimaryCCD.getXRes() * PrimaryCCD.getYRes() * PrimaryCCD.getBPP() / 8;
-    nbuf += 512;
+    //nbuf += 512;
     PrimaryCCD.setFrameBufferSize(nbuf);
 
-    // Only generate filter names if there are none initially
-    if (FilterNameT == nullptr)
-        GetFilterNames(FILTER_TAB);
+    Streamer->setPixelFormat(INDI_MONO, 16);
+    Streamer->setSize(PrimaryCCD.getXRes(), PrimaryCCD.getYRes());
 
     return true;
 }
 
 bool CCDSim::Connect()
 {
-    SetTimer(1000); //  start the timer
+    pthread_create(&primary_thread, nullptr, &streamVideoHelper, this);
+    SetTimer(POLLMS);
     return true;
 }
 
-CCDSim::~CCDSim()
+bool CCDSim::Disconnect()
 {
-    //dtor
+    pthread_mutex_lock(&condMutex);
+    streamPredicate = 1;
+    terminateThread = true;
+    pthread_cond_signal(&cv);
+    pthread_mutex_unlock(&condMutex);
+
+    return true;
 }
 
 const char *CCDSim::getDefaultName()
 {
-    return (char *)"CCD Simulator";
+    return (const char *)"CCD Simulator";
 }
 
 bool CCDSim::initProperties()
@@ -181,8 +158,8 @@ bool CCDSim::initProperties()
     //  but the simulators are a special case
     INDI::CCD::initProperties();
 
-    IUFillNumber(&SimulatorSettingsN[0], "SIM_XRES", "CCD X resolution", "%4.0f", 0, 4096, 0, 1280);
-    IUFillNumber(&SimulatorSettingsN[1], "SIM_YRES", "CCD Y resolution", "%4.0f", 0, 4096, 0, 1024);
+    IUFillNumber(&SimulatorSettingsN[0], "SIM_XRES", "CCD X resolution", "%4.0f", 0, 8192, 0, 1280);
+    IUFillNumber(&SimulatorSettingsN[1], "SIM_YRES", "CCD Y resolution", "%4.0f", 0, 8192, 0, 1024);
     IUFillNumber(&SimulatorSettingsN[2], "SIM_XSIZE", "CCD X Pixel Size", "%4.2f", 0, 60, 0, 5.2);
     IUFillNumber(&SimulatorSettingsN[3], "SIM_YSIZE", "CCD Y Pixel Size", "%4.2f", 0, 60, 0, 5.2);
     IUFillNumber(&SimulatorSettingsN[4], "SIM_MAXVAL", "CCD Maximum ADU", "%4.0f", 0, 65000, 0, 65000);
@@ -215,13 +192,32 @@ bool CCDSim::initProperties()
 
     IUFillNumber(&EqPEN[0], "RA_PE", "RA (hh:mm:ss)", "%010.6m", 0, 24, 0, 0);
     IUFillNumber(&EqPEN[1], "DEC_PE", "DEC (dd:mm:ss)", "%010.6m", -90, 90, 0, 0);
-    IUFillNumberVector(&EqPENP, EqPEN, 2, ActiveDeviceT[0].text, "EQUATORIAL_PE", "EQ PE", "Main Control", IP_RW, 60,
+    IUFillNumberVector(&EqPENP, EqPEN, 2, getDeviceName(), "EQUATORIAL_PE", "EQ PE", "Simulator Config" , IP_RW, 60,
                        IPS_IDLE);
 
+    #ifdef USE_EQUATORIAL_PE
     IDSnoopDevice(ActiveDeviceT[0].text, "EQUATORIAL_PE");
+    #else
+    IDSnoopDevice(ActiveDeviceT[0].text, "EQUATORIAL_EOD_COORD");
+    #endif
+
+
     IDSnoopDevice(ActiveDeviceT[1].text, "FWHM");
 
-    initFilterProperties(getDeviceName(), FILTER_TAB);
+    uint32_t cap = 0;
+
+    cap |= CCD_CAN_ABORT;
+    cap |= CCD_CAN_BIN;
+    cap |= CCD_CAN_SUBFRAME;
+    cap |= CCD_HAS_COOLER;
+    cap |= CCD_HAS_GUIDE_HEAD;
+    cap |= CCD_HAS_SHUTTER;
+    cap |= CCD_HAS_ST4_PORT;
+    cap |= CCD_HAS_STREAMING;
+
+    SetCCDCapability(cap);
+
+    INDI::FilterInterface::initProperties(FILTER_TAB);
 
     FilterSlotN[0].min = 1;
     FilterSlotN[0].max = 8;
@@ -241,9 +237,8 @@ void CCDSim::ISGetProperties(const char *dev)
     INDI::CCD::ISGetProperties(dev);
 
     defineNumber(SimulatorSettingsNV);
-    defineSwitch(TimeFactorSV);
-
-    return;
+    defineSwitch(TimeFactorSV);    
+    defineNumber(&EqPENP);
 }
 
 bool CCDSim::updateProperties()
@@ -264,24 +259,16 @@ bool CCDSim::updateProperties()
         }
 
         // Define the Filter Slot and name properties
-        defineNumber(&FilterSlotNP);
-        if (FilterNameT != nullptr)
-            defineText(FilterNameTP);
+        INDI::FilterInterface::updateProperties();
     }
     else
     {
         if (HasCooler())
             deleteProperty(CoolerSP.name);
 
-        deleteProperty(FilterSlotNP.name);
-        deleteProperty(FilterNameTP->name);
+        INDI::FilterInterface::updateProperties();
     }
 
-    return true;
-}
-
-bool CCDSim::Disconnect()
-{
     return true;
 }
 
@@ -303,6 +290,12 @@ int CCDSim::SetTemperature(double temperature)
 
 bool CCDSim::StartExposure(float duration)
 {
+    if (std::isnan(RA) && std::isnan(Dec))
+    {
+        LOG_ERROR("Telescope coordinates missing. Make sure telescope is connected and its name is set in CCD Options.");
+        return false;
+    }
+
     //  for the simulator, we can just draw the frame now
     //  and it will get returned at the right time
     //  by the timer routines
@@ -316,6 +309,7 @@ bool CCDSim::StartExposure(float duration)
     //  Now compress the actual wait time
     ExposureRequest = duration * TimeFactor;
     InExposure      = true;
+
     return true;
 }
 
@@ -353,7 +347,7 @@ float CCDSim::CalcTimeLeft(timeval start, float req)
 {
     double timesince;
     double timeleft;
-    struct timeval now;
+    struct timeval now { 0, 0 };
     gettimeofday(&now, nullptr);
 
     timesince =
@@ -365,10 +359,11 @@ float CCDSim::CalcTimeLeft(timeval start, float req)
 
 void CCDSim::TimerHit()
 {
-    int nexttimer = 1000;
+    uint32_t nextTimer = POLLMS;
 
-    if (isConnected() == false)
-        return; //  No need to reset timer if we are not connected anymore
+    //  No need to reset timer if we are not connected anymore
+    if (!isConnected())
+        return;
 
     if (InExposure)
     {
@@ -393,11 +388,13 @@ void CCDSim::TimerHit()
                 if (timeleft <= 0.001)
                 {
                     InExposure = false;
+                    PrimaryCCD.binFrame();
                     ExposureComplete(&PrimaryCCD);
                 }
                 else
                 {
-                    nexttimer = timeleft * 1000; //  set a shorter timer
+                    //  set a shorter timer
+                    nextTimer = timeleft * 1000;
                 }
             }
         }
@@ -424,7 +421,7 @@ void CCDSim::TimerHit()
                 InGuideExposure = false;
                 if (!AbortGuideFrame)
                 {
-                    //IDLog("Sending guider frame\n");
+                    GuideCCD.binFrame();
                     ExposureComplete(&GuideCCD);
                     if (InGuideExposure)
                     {
@@ -432,7 +429,7 @@ void CCDSim::TimerHit()
                         timeleft = CalcTimeLeft(GuideExpStart, GuideExposureRequest);
                         if (timeleft < 1.0)
                         {
-                            nexttimer = timeleft * 1000;
+                            nextTimer = timeleft * 1000;
                         }
                     }
                 }
@@ -444,7 +441,7 @@ void CCDSim::TimerHit()
             }
             else
             {
-                nexttimer = timeleft * 1000; //  set a shorter timer
+                nextTimer = timeleft * 1000; //  set a shorter timer
             }
         }
     }
@@ -453,7 +450,7 @@ void CCDSim::TimerHit()
     {
         if (fabs(TemperatureRequest - TemperatureN[0].value) <= 0.5)
         {
-            DEBUGF(INDI::Logger::DBG_SESSION, "Temperature reached requested value %.2f degrees C", TemperatureRequest);
+            LOGF_INFO("Temperature reached requested value %.2f degrees C", TemperatureRequest);
             TemperatureN[0].value = TemperatureRequest;
             TemperatureNP.s       = IPS_OK;
         }
@@ -477,23 +474,23 @@ void CCDSim::TimerHit()
         }
     }
 
-    SetTimer(nexttimer);
-    return;
+
+    SetTimer(nextTimer);
 }
 
-int CCDSim::DrawCcdFrame(CCDChip *targetChip)
+int CCDSim::DrawCcdFrame(INDI::CCDChip *targetChip)
 {
-    //  Ok, lets just put a silly pattern into this
-    //  CCd frame is 16 bit data
-    unsigned short int *ptr;
-    unsigned short int val;
+    //  CCD frame is 16 bit data
+    uint16_t val;
     float ExposureTime;
     float targetFocalLength;
 
-    ptr = (unsigned short int *)targetChip->getFrameBuffer();
+    uint16_t *ptr = reinterpret_cast<uint16_t*>(targetChip->getFrameBuffer());
 
     if (targetChip->getXRes() == 500)
         ExposureTime = GuideExposureRequest;
+    else if (Streamer->isStreaming())
+        ExposureTime = (ExposureRequest < 1) ? (ExposureRequest * 100) : ExposureRequest * 2;
     else
         ExposureTime = ExposureRequest;
 
@@ -529,7 +526,7 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
         //  Now convert to radians
         PESpot = PESpot * 2.0 * 3.14159;
 
-        PEOffset = PEMax * sin(PESpot);
+        PEOffset = PEMax * std::sin(PESpot);
         //fprintf(stderr,"PEOffset = %4.2f arcseconds timesince %4.2f\n",PEOffset,timesince);
         PEOffset = PEOffset / 3600; //  convert to degrees
         //PeOffset=PeOffset/15;       //  ra is in h:mm
@@ -565,10 +562,12 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
         Scalex = (targetChip->getPixelSizeX() / targetFocalLength) * 206.3;
         Scaley = (targetChip->getPixelSizeY() / targetFocalLength) * 206.3;
 
+#if 0
         DEBUGF(
             INDI::Logger::DBG_DEBUG,
             "pprx: %g pixels per radian ppry: %g pixels per radian ScaleX: %g arcsecs/pixel ScaleY: %g arcsecs/pixel",
             pprx, ppry, Scalex, Scaley);
+#endif
 
         double theta = rotationCW + 270;
         if (theta > 360)
@@ -592,28 +591,37 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
         ImageScalex = Scalex;
         ImageScaley = Scaley;
 
-        if (usePE == false)
+        #ifdef USE_EQUATORIAL_PE
+        if (!usePE)
         {
-            raPE  = RA;
-            decPE = Dec;
+        #endif
 
-            ln_equ_posn epochPos, J2000Pos;
-            epochPos.ra  = raPE * 15.0;
-            epochPos.dec = decPE;
+            currentRA  = RA;
+            currentDE = Dec;
+
+            ln_equ_posn epochPos { 0, 0 }, J2000Pos { 0, 0 };
+
+            epochPos.ra  = currentRA * 15.0;
+            epochPos.dec = currentDE;
 
             // Convert from JNow to J2000
             ln_get_equ_prec2(&epochPos, ln_get_julian_from_sys(), JD2000, &J2000Pos);
 
-            raPE  = J2000Pos.ra / 15.0;
-            decPE = J2000Pos.dec;
+            currentRA  = J2000Pos.ra / 15.0;
+            currentDE = J2000Pos.dec;
+
+            currentDE += guideNSOffset;
+            currentRA += guideWEOffset;
+        #ifdef USE_EQUATORIAL_PE
         }
+        #endif
 
         //  calc this now, we will use it a lot later
-        rad = raPE * 15.0;
+        rad = currentRA * 15.0;
         rar = rad * 0.0174532925;
         //  offsetting the dec by the guide head offset
         float cameradec;
-        cameradec = decPE + OAGoffset / 60;
+        cameradec = currentDE + OAGoffset / 60;
         decr      = cameradec * 0.0174532925;
 
         decDrift = (polarDrift * polarError * cos(decr)) / 3.81;
@@ -630,7 +638,9 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
         //  we have radius in arcseconds now
         radius = radius / 60; //  convert to arcminutes
 
-        DEBUGF(INDI::Logger::DBG_DEBUG, "Lookup radius %4.2f", radius);
+#if 0
+        LOGF_DEBUG("Lookup radius %4.2f", radius);
+#endif
 
         //  A saturationmag star saturates in one second
         //  and a limitingmag produces a one adu level in one second
@@ -652,15 +662,16 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
             lookuplimit = 11;
 
         //  if this is a light frame, we need a star field drawn
-        CCDChip::CCD_FRAME ftype = targetChip->getFrameType();
+        INDI::CCDChip::CCD_FRAME ftype = targetChip->getFrameType();
 
-        if (ftype == CCDChip::LIGHT_FRAME)
+        if (ftype == INDI::CCDChip::LIGHT_FRAME)
         {
-            char *orig = setlocale(LC_NUMERIC, "C");
+            AutoCNumeric locale;
+
             //sprintf(gsccmd,"gsc -c %8.6f %+8.6f -r 120 -m 0 9.1",rad+PEOffset,decPE);
             sprintf(gsccmd, "gsc -c %8.6f %+8.6f -r %4.1f -m 0 %4.2f -n 3000", rad + PEOffset, cameradec, radius,
                     lookuplimit);
-            DEBUGF(INDI::Logger::DBG_DEBUG, "%s", gsccmd);
+            LOGF_DEBUG("%s", gsccmd);
             pp = popen(gsccmd, "r");
             if (pp != nullptr)
             {
@@ -724,29 +735,24 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
                         // Invert horizontally
                         ccdx = ccdW - ccdx;
 
-                        rc = DrawImageStar(targetChip, mag, ccdx, ccdy);
+                        rc = DrawImageStar(targetChip, mag, ccdx, ccdy, ExposureTime);
                         drawn += rc;
                         if (rc == 1)
                         {
-                            //DEBUGF(INDI::Logger::DBG_DEBUG, "star %s scope %6.4f %6.4f star %6.4f %6.4f ccd %6.2f %6.2f",id,rad,decPE,ra,dec,ccdx,ccdy);
-                            //DEBUGF(INDI::Logger::DBG_DEBUG, "star %s ccd %6.2f %6.2f",id,ccdx,ccdy);
+                            //LOGF_DEBUG("star %s scope %6.4f %6.4f star %6.4f %6.4f ccd %6.2f %6.2f",id,rad,decPE,ra,dec,ccdx,ccdy);
+                            //LOGF_DEBUG("star %s ccd %6.2f %6.2f",id,ccdx,ccdy);
                         }
                     }
                 }
                 pclose(pp);
-                setlocale(LC_NUMERIC, orig);
             }
             else
             {
-                IDMessage(getDeviceName(),
-                          "Error looking up stars, is gsc installed with appropriate environment variables set ??");
-                //fprintf(stderr,"Error doing gsc lookup\n");
-                setlocale(LC_NUMERIC, orig);
+                LOG_ERROR("Error looking up stars, is gsc installed with appropriate environment variables set ??");
             }
             if (drawn == 0)
             {
-                IDMessage(getDeviceName(),
-                          "Got no stars, is gsc installed with appropriate environment variables set ??");
+                LOG_ERROR("Got no stars, is gsc installed with appropriate environment variables set ??");
             }
         }
         //fprintf(stderr,"Got %d stars from %d lines drew %d\n",stars,lines,drawn);
@@ -755,13 +761,13 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
         //  this is essentially the same math as drawing a dim star with
         //  fwhm equivalent to the full field of view
 
-        if (ftype == CCDChip::LIGHT_FRAME || ftype == CCDChip::FLAT_FRAME)
+        if (ftype == INDI::CCDChip::LIGHT_FRAME || ftype == INDI::CCDChip::FLAT_FRAME)
         {
             float skyflux;
-            float glow;
             //  calculate flux from our zero point and gain values
-            glow = skyglow;
-            if (ftype == CCDChip::FLAT_FRAME)
+            float glow = skyglow;
+
+            if (ftype == INDI::CCDChip::FLAT_FRAME)
             {
                 //  Assume flats are done with a diffuser
                 //  in broad daylight, so, the sky magnitude
@@ -779,7 +785,7 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
 
             unsigned short *pt;
 
-            pt = (unsigned short int *)targetChip->getFrameBuffer();
+            pt = (uint16_t *)targetChip->getFrameBuffer();
 
             nheight = targetChip->getSubH();
             nwidth  = targetChip->getSubW();
@@ -799,7 +805,7 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
                     vig = nwidth;
                     vig = vig * ImageScalex;
                     //  need to make this account for actual pixel size
-                    dc = sqrt(sx * sx * ImageScalex * ImageScalex + sy * sy * ImageScaley * ImageScaley);
+                    dc = std::sqrt(sx * sx * ImageScalex * ImageScalex + sy * sy * ImageScaley * ImageScaley);
                     //  now we have the distance from center, in arcseconds
                     //  now lets plot a gaussian falloff to the edges
                     //
@@ -863,14 +869,12 @@ int CCDSim::DrawCcdFrame(CCDChip *targetChip)
             *ptr = val++;
             ptr++;
         }
-    }
-
-    targetChip->binFrame();
+    }    
 
     return 0;
 }
 
-int CCDSim::DrawImageStar(CCDChip *targetChip, float mag, float x, float y)
+int CCDSim::DrawImageStar(INDI::CCDChip *targetChip, float mag, float x, float y, float ExposureTime)
 {
     //float d;
     //float r;
@@ -879,7 +883,6 @@ int CCDSim::DrawImageStar(CCDChip *targetChip, float mag, float x, float y)
     int boxsizex = 5;
     int boxsizey = 5;
     float flux;
-    float ExposureTime;
 
     int subX = targetChip->getSubX();
     int subY = targetChip->getSubY();
@@ -891,11 +894,6 @@ int CCDSim::DrawImageStar(CCDChip *targetChip, float mag, float x, float y)
         //  this star is not on the ccd frame anyways
         return 0;
     }
-
-    if (targetChip->getXRes() == 500)
-        ExposureTime = GuideExposureRequest * 4;
-    else
-        ExposureTime = ExposureRequest;
 
     //  calculate flux from our zero point and gain values
     flux = pow(10, ((mag - z) * k / -2.5));
@@ -926,12 +924,12 @@ int CCDSim::DrawImageStar(CCDChip *targetChip, float mag, float x, float y)
             float fp; //  flux this pixel;
 
             //  need to make this account for actual pixel size
-            dc = sqrt(sx * sx * ImageScalex * ImageScalex + sy * sy * ImageScaley * ImageScaley);
+            dc = std::sqrt(sx * sx * ImageScalex * ImageScalex + sy * sy * ImageScaley * ImageScaley);
             //  now we have the distance from center, in arcseconds
             //  This should be gaussian, but, for now we'll just go with
             //  a simple linear function
-            float fa;
-            fa = exp(-2.0 * 0.7 * (dc * dc) / seeing / seeing);
+            float fa = exp(-2.0 * 0.7 * (dc * dc) / seeing / seeing);
+
             fp = fa * flux;
 
             if (fp < 0)
@@ -945,7 +943,7 @@ int CCDSim::DrawImageStar(CCDChip *targetChip, float mag, float x, float y)
     return drew;
 }
 
-int CCDSim::AddToPixel(CCDChip *targetChip, int x, int y, int val)
+int CCDSim::AddToPixel(INDI::CCDChip *targetChip, int x, int y, int val)
 {
     int nwidth  = targetChip->getSubW();
     int nheight = targetChip->getSubH();
@@ -966,7 +964,7 @@ int CCDSim::AddToPixel(CCDChip *targetChip, int x, int y, int val)
                     int newval;
                     drew++;
 
-                    pt = (unsigned short int *)targetChip->getFrameBuffer();
+                    pt = (uint16_t *)targetChip->getFrameBuffer();
 
                     pt += (y * nwidth);
                     pt += x;
@@ -988,59 +986,47 @@ int CCDSim::AddToPixel(CCDChip *targetChip, int x, int y, int val)
 
 IPState CCDSim::GuideNorth(float v)
 {
-    float c;
-
-    c     = v / 1000 * GuideRate; //
-    c     = c / 3600;
-    decPE = decPE + c;
-
+    guideNSOffset    += v / 1000 * GuideRate / 3600;
     return IPS_OK;
 }
 
 IPState CCDSim::GuideSouth(float v)
 {
-    float c;
-
-    c     = v / 1000 * GuideRate; //
-    c     = c / 3600;
-    decPE = decPE - c;
-
+    guideNSOffset    += v / -1000 * GuideRate / 3600;
     return IPS_OK;
 }
 
 IPState CCDSim::GuideEast(float v)
 {
-    float c;
+    float c   = v / 1000 * GuideRate;
+    c   = c/ 3600.0 / 15.0;
+    c   = c/ (cos(currentDE * 0.0174532925));
 
-    c    = v / 1000 * GuideRate;
-    c    = c / 3600.0 / 15.0;
-    c    = c / (cos(decPE * 0.0174532925));
-    raPE = raPE + c;
+    guideWEOffset += c;
 
     return IPS_OK;
 }
 
 IPState CCDSim::GuideWest(float v)
 {
-    float c;
+    float c   = v / -1000 * GuideRate;
+    c   = c/ 3600.0 / 15.0;
+    c   = c/ (cos(currentDE * 0.0174532925));
 
-    c    = v / 1000 * GuideRate; //
-    c    = c / 3600.0 / 15.0;
-    c    = c / (cos(decPE * 0.0174532925));
-    raPE = raPE - c;
+    guideWEOffset += c;
 
     return IPS_OK;
 }
 
 bool CCDSim::ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         //  This is for our device
         //  Now lets see if it's something we process here
         if (strcmp(name, FilterNameTP->name) == 0)
         {
-            processFilterName(dev, texts, names, n);
+            INDI::FilterInterface::processText(dev, name, texts, names, n);
             return true;
         }
     }
@@ -1050,14 +1036,9 @@ bool CCDSim::ISNewText(const char *dev, const char *name, char *texts[], char *n
 
 bool CCDSim::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    //  first check if it's for our device
-    //IDLog("INDI::CCD::ISNewNumber %s\n",name);
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
-        //  This is for our device
-        //  Now lets see if it's something we process here
 
-        //IDLog("CCDSim::ISNewNumber %s\n",name);
         if (strcmp(name, "SIMULATOR_SETTINGS") == 0)
         {
             IUUpdateNumber(SimulatorSettingsNV, values, names, n);
@@ -1067,25 +1048,45 @@ bool CCDSim::ISNewNumber(const char *dev, const char *name, double values[], cha
             SetupParms();
             IDSetNumber(SimulatorSettingsNV, nullptr);
 
-            //IDLog("Frame set to %4.0f,%4.0f %4.0f x %4.0f\n",CcdFrameN[0].value,CcdFrameN[1].value,CcdFrameN[2].value,CcdFrameN[3].value);
-            //seeing=SimulatorSettingsN[0].value;
+            return true;
+        }
+
+        // Record PE EQ to simulate different position in the sky than actual mount coordinate
+        // This can be useful to simulate Periodic Error or cone error or any arbitrary error.
+        if (!strcmp(name, EqPENP.name))
+        {
+            IUUpdateNumber(&EqPENP, values, names, n);
+            EqPENP.s = IPS_OK;
+
+            ln_equ_posn epochPos { 0, 0 }, J2000Pos { 0, 0 };
+            epochPos.ra  = EqPEN[AXIS_RA].value * 15.0;
+            epochPos.dec = EqPEN[AXIS_DE].value;
+
+            RA = EqPEN[AXIS_RA].value;
+            Dec = EqPEN[AXIS_DE].value;
+
+            ln_get_equ_prec2(&epochPos, ln_get_julian_from_sys(), JD2000, &J2000Pos);
+            currentRA  = J2000Pos.ra / 15.0;
+            currentDE = J2000Pos.dec;
+            usePE = true;
+
+            IDSetNumber(&EqPENP, nullptr);
             return true;
         }
 
         if (strcmp(name, FilterSlotNP.name) == 0)
         {
-            processFilterSlot(getDeviceName(), values, names);
+            INDI::FilterInterface::processNumber(dev, name, values, names, n);
             return true;
         }
     }
-    //  if we didn't process it, continue up the chain, let somebody else
-    //  give it a shot
+
     return INDI::CCD::ISNewNumber(dev, name, values, names, n);
 }
 
 bool CCDSim::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (strcmp(name, "ON_TIME_FACTOR") == 0)
         {
@@ -1115,7 +1116,7 @@ bool CCDSim::ISNewSwitch(const char *dev, const char *name, ISState *states, cha
         }
     }
 
-    if (!strcmp(name, CoolerSP.name))
+    if (strcmp(name, CoolerSP.name) == 0)
     {
         IUUpdateSwitch(&CoolerSP, states, names, n);
 
@@ -1139,10 +1140,13 @@ bool CCDSim::ISNewSwitch(const char *dev, const char *name, ISState *states, cha
 
 void CCDSim::activeDevicesUpdated()
 {
+    #ifdef USE_EQUATORIAL_PE
     IDSnoopDevice(ActiveDeviceT[0].text, "EQUATORIAL_PE");
+    #else
+    IDSnoopDevice(ActiveDeviceT[0].text, "EQUATORIAL_EOD_COORD");
+    #endif
     IDSnoopDevice(ActiveDeviceT[1].text, "FWHM");
 
-    strncpy(EqPENP.device, ActiveDeviceT[0].text, MAXINDIDEVICE);
     strncpy(FWHMNP.device, ActiveDeviceT[1].text, MAXINDIDEVICE);
 }
 
@@ -1151,43 +1155,61 @@ bool CCDSim::ISSnoopDevice(XMLEle *root)
     if (IUSnoopNumber(root, &FWHMNP) == 0)
     {
         seeing = FWHMNP.np[0].value;
-
-        //IDLog("CCD Simulator: New FWHM value of %g\n", seeing);
         return true;
     }
 
     // We try to snoop EQPEC first, if not found, we snoop regular EQNP
-    if (IUSnoopNumber(root, &EqPENP) == 0)
+    #ifdef USE_EQUATORIAL_PE
+    const char *propName = findXMLAttValu(root, "name");
+    if (!strcmp(propName, EqPENP.name))
     {
-        double newra, newdec;
-        newra  = EqPEN[0].value;
-        newdec = EqPEN[1].value;
-        if ((newra != raPE) || (newdec != decPE))
-        {
-            ln_equ_posn epochPos, J2000Pos;
-            epochPos.ra  = newra * 15.0;
-            epochPos.dec = newdec;
+            XMLEle *ep = nullptr;
+            int rc_ra = -1, rc_de = -1;
+            double newra = 0, newdec = 0;
 
-            ln_get_equ_prec2(&epochPos, ln_get_julian_from_sys(), JD2000, &J2000Pos);
+            for (ep = nextXMLEle(root, 1); ep != nullptr; ep = nextXMLEle(root, 0))
+            {
+                const char *elemName = findXMLAttValu(ep, "name");
 
-            raPE  = J2000Pos.ra / 15.0;
-            decPE = J2000Pos.dec;
+                if (!strcmp(elemName, "RA_PE"))
+                    rc_ra = f_scansexa(pcdataXMLEle(ep), &newra);
+                else if (!strcmp(elemName, "DEC_PE"))
+                    rc_de = f_scansexa(pcdataXMLEle(ep), &newdec);
+            }
 
-            usePE = true;
+            if (rc_ra == 0 && rc_de == 0 && ((newra != raPE) || (newdec != decPE)))
+            {
+                ln_equ_posn epochPos { 0, 0 }, J2000Pos { 0, 0 };
+                epochPos.ra  = newra * 15.0;
+                epochPos.dec = newdec;
+                ln_get_equ_prec2(&epochPos, ln_get_julian_from_sys(), JD2000, &J2000Pos);
+                raPE  = J2000Pos.ra / 15.0;
+                decPE = J2000Pos.dec;
+                usePE = true;
 
-            DEBUGF(INDI::Logger::DBG_DEBUG, "raPE %g  decPE %g Snooped raPE %g  decPE %g", raPE, decPE, newra, newdec);
+                EqPEN[AXIS_RA].value = newra;
+                EqPEN[AXIS_DE].value = newdec;
+                IDSetNumber(&EqPENP, nullptr);
 
-            return true;
-        }
+                LOGF_DEBUG("raPE %g  decPE %g Snooped raPE %g  decPE %g", raPE, decPE, newra, newdec);
+
+                return true;
+            }
     }
+    #endif
 
     return INDI::CCD::ISSnoopDevice(root);
 }
 
 bool CCDSim::saveConfigItems(FILE *fp)
 {
+    // Save CCD Config
     INDI::CCD::saveConfigItems(fp);
 
+    // Save Filter Wheel Config
+    INDI::FilterInterface::saveConfigItems(fp);
+
+    // Save CCD Simulator Config
     IUSaveConfigNumber(fp, SimulatorSettingsNV);
     IUSaveConfigSwitch(fp, TimeFactorSV);
 
@@ -1201,33 +1223,113 @@ bool CCDSim::SelectFilter(int f)
     return true;
 }
 
-bool CCDSim::GetFilterNames(const char *groupName)
+int CCDSim::QueryFilter()
 {
-    char filterName[MAXINDINAME];
-    char filterLabel[MAXINDILABEL];
-    int MaxFilter = FilterSlotN[0].max;
+    return CurrentFilter;
+}
 
-    const char *filterDesignation[8] = { "Red", "Green", "Blue", "H_Alpha", "SII", "OIII", "LPR", "Luminosity" };
-
-    if (FilterNameT != nullptr)
-        delete FilterNameT;
-
-    FilterNameT = new IText[MaxFilter];
-
-    for (int i = 0; i < MaxFilter; i++)
-    {
-        snprintf(filterName, MAXINDINAME, "FILTER_SLOT_NAME_%d", i + 1);
-        snprintf(filterLabel, MAXINDILABEL, "Filter#%d", i + 1);
-        IUFillText(&FilterNameT[i], filterName, filterLabel, filterDesignation[i]);
-    }
-
-    IUFillTextVector(FilterNameTP, FilterNameT, MaxFilter, getDeviceName(), "FILTER_NAME", "Filter names", groupName,
-                     IP_RW, 0, IPS_IDLE);
+bool CCDSim::StartStreaming()
+{
+    ExposureRequest = 1.0 / Streamer->getTargetFPS();
+    pthread_mutex_lock(&condMutex);
+    streamPredicate = 1;
+    pthread_mutex_unlock(&condMutex);
+    pthread_cond_signal(&cv);
 
     return true;
 }
 
-int CCDSim::QueryFilter()
+bool CCDSim::StopStreaming()
 {
-    return CurrentFilter;
+    pthread_mutex_lock(&condMutex);
+    streamPredicate = 0;
+    pthread_mutex_unlock(&condMutex);
+    pthread_cond_signal(&cv);
+
+    return true;
+}
+
+bool CCDSim::UpdateCCDFrame(int x, int y, int w, int h)
+{
+    long bin_width  = w / PrimaryCCD.getBinX();
+    long bin_height = h / PrimaryCCD.getBinY();
+
+    bin_width  = bin_width - (bin_width % 2);
+    bin_height = bin_height - (bin_height % 2);
+
+    Streamer->setSize(bin_width, bin_height);
+
+    return INDI::CCD::UpdateCCDFrame(x,y,w,h);
+}
+
+bool CCDSim::UpdateCCDBin(int hor, int ver)
+{
+    if (hor == 3 || ver == 3)
+    {
+        LOG_ERROR("3x3 binning is not supported.");
+        return false;
+    }
+
+    long bin_width  = PrimaryCCD.getSubW() / hor;
+    long bin_height = PrimaryCCD.getSubH() / ver;
+
+    bin_width  = bin_width - (bin_width % 2);
+    bin_height = bin_height - (bin_height % 2);
+
+    Streamer->setSize(bin_width, bin_height);
+
+    return INDI::CCD::UpdateCCDBin(hor,ver);
+}
+
+void *CCDSim::streamVideoHelper(void *context)
+{
+    return ((CCDSim *)context)->streamVideo();
+}
+
+void *CCDSim::streamVideo()
+{
+    struct itimerval tframe1, tframe2;
+    double s1, s2, deltas;
+
+    while (true)
+    {
+        pthread_mutex_lock(&condMutex);
+
+        while (streamPredicate == 0)
+        {
+            pthread_cond_wait(&cv, &condMutex);
+            ExposureRequest = 1.0 / Streamer->getTargetFPS();
+        }
+
+        if (terminateThread)
+            break;
+
+        // release condMutex
+        pthread_mutex_unlock(&condMutex);
+
+        // Simulate exposure time
+        //usleep(ExposureRequest*1e5);
+
+        // 16 bit
+        DrawCcdFrame(&PrimaryCCD);
+
+        PrimaryCCD.binFrame();
+
+        getitimer(ITIMER_REAL, &tframe1);
+
+        s1 = ((double)tframe1.it_value.tv_sec) + ((double)tframe1.it_value.tv_usec / 1e6);
+        s2 = ((double)tframe2.it_value.tv_sec) + ((double)tframe2.it_value.tv_usec / 1e6);
+        deltas = fabs(s2 - s1);
+
+        if (deltas < ExposureRequest)
+            usleep(fabs(ExposureRequest-deltas)*1e6);
+
+        uint32_t size = PrimaryCCD.getFrameBufferSize() / (PrimaryCCD.getBinX()*PrimaryCCD.getBinY());
+        Streamer->newFrame(PrimaryCCD.getFrameBuffer(), size);
+
+        getitimer(ITIMER_REAL, &tframe2);
+    }
+
+    pthread_mutex_unlock(&condMutex);
+    return 0;
 }

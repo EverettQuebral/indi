@@ -27,12 +27,12 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110 - 1301  USA
 #include "indicom.h"
 #include "lx200driver.h"
 
-#include <math.h>
-#include <memory>
-#include <string.h>
-#include <unistd.h>
+#include <libnova/sidereal_time.h>
 
-#define POLLMS 1000
+#include <cmath>
+#include <memory>
+#include <cstring>
+#include <unistd.h>
 
 /* Simulation Parameters */
 #define SLEWRATE 1        /* slew rate, degrees/s */
@@ -109,19 +109,16 @@ LX200Basic::LX200Basic()
 
     DBG_SCOPE = INDI::Logger::getInstance().addDebugLevel("Scope Verbose", "SCOPE");
 
-    currentRA  = ln_get_apparent_sidereal_time(ln_get_julian_from_sys());
-    currentDEC = 90;
+    double longitude=0, latitude=90;
+    // Get value from config file if it exists.
+    IUGetConfigNumber(getDeviceName(), "GEOGRAPHIC_COORD", "LONG", &longitude);
+    currentRA  = get_local_sidereal_time(longitude);
+    IUGetConfigNumber(getDeviceName(), "GEOGRAPHIC_COORD", "LAT", &latitude);
+    currentDEC = latitude > 0 ? 90 : -90;
 
     SetTelescopeCapability(TELESCOPE_CAN_SYNC | TELESCOPE_CAN_GOTO | TELESCOPE_CAN_ABORT);
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "Initializing from LX200 Basic device...");
-}
-
-/**************************************************************************************
-**
-***************************************************************************************/
-LX200Basic::~LX200Basic()
-{
+    LOG_DEBUG("Initializing from LX200 Basic device...");
 }
 
 /**************************************************************************************
@@ -138,7 +135,7 @@ void LX200Basic::debugTriggered(bool enable)
 ***************************************************************************************/
 const char *LX200Basic::getDefaultName()
 {
-    return (char *)"LX200 Basic";
+    return (const char *)"LX200 Basic";
 }
 
 /**************************************************************************************
@@ -165,13 +162,13 @@ bool LX200Basic::initProperties()
 ***************************************************************************************/
 void LX200Basic::ISGetProperties(const char *dev)
 {
-    if (dev && strcmp(dev, getDeviceName()))
+    if (dev != nullptr && strcmp(dev, getDeviceName()) != 0)
         return;
 
     INDI::Telescope::ISGetProperties(dev);
 
-    if (isConnected())
-        defineNumber(&SlewAccuracyNP);
+    //if (isConnected())
+    //    defineNumber(&SlewAccuracyNP);
 }
 
 /**************************************************************************************
@@ -206,7 +203,7 @@ bool LX200Basic::Handshake()
 {
     if (getLX200RA(PortFD, &currentRA) != 0)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Error communication with telescope.");
+        LOG_ERROR("Error communication with telescope.");
         return false;
     }
 
@@ -228,7 +225,7 @@ bool LX200Basic::isSlewComplete()
 ***************************************************************************************/
 bool LX200Basic::ReadScopeStatus()
 {
-    if (isConnected() == false)
+    if (!isConnected())
         return false;
 
     if (isSimulation())
@@ -250,7 +247,7 @@ bool LX200Basic::ReadScopeStatus()
         if (isSlewComplete())
         {
             TrackState = SCOPE_TRACKING;
-            IDMessage(getDeviceName(), "Slew is complete. Tracking...");
+            LOG_INFO("Slew is complete. Tracking...");
         }
     }
 
@@ -266,7 +263,7 @@ bool LX200Basic::Goto(double r, double d)
 {
     targetRA  = r;
     targetDEC = d;
-    char RAStr[64], DecStr[64];
+    char RAStr[64]={0}, DecStr[64]={0};
 
     fs_sexa(RAStr, targetRA, 2, 3600);
     fs_sexa(DecStr, targetDEC, 2, 3600);
@@ -290,7 +287,7 @@ bool LX200Basic::Goto(double r, double d)
         usleep(100000);
     }
 
-    if (isSimulation() == false)
+    if (!isSimulation())
     {
         if (setObjectRA(PortFD, targetRA) < 0 || (setObjectDEC(PortFD, targetDEC)) < 0)
         {
@@ -314,7 +311,7 @@ bool LX200Basic::Goto(double r, double d)
     TrackState = SCOPE_SLEWING;
     EqNP.s     = IPS_BUSY;
 
-    IDMessage(getDeviceName(), "Slewing to RA: %s - DEC: %s", RAStr, DecStr);
+    LOGF_INFO("Slewing to RA: %s - DEC: %s", RAStr, DecStr);
     return true;
 }
 
@@ -323,16 +320,16 @@ bool LX200Basic::Goto(double r, double d)
 ***************************************************************************************/
 bool LX200Basic::Sync(double ra, double dec)
 {
-    char syncString[256];
+    char syncString[256]={0};
 
-    if (isSimulation() == false && (setObjectRA(PortFD, ra) < 0 || (setObjectDEC(PortFD, dec)) < 0))
+    if (!isSimulation() && (setObjectRA(PortFD, ra) < 0 || (setObjectDEC(PortFD, dec)) < 0))
     {
         EqNP.s = IPS_ALERT;
         IDSetNumber(&EqNP, "Error setting RA/DEC. Unable to Sync.");
         return false;
     }
 
-    if (isSimulation() == false && ::Sync(PortFD, syncString) < 0)
+    if (!isSimulation() && ::Sync(PortFD, syncString) < 0)
     {
         EqNP.s = IPS_ALERT;
         IDSetNumber(&EqNP, "Synchronization failed.");
@@ -342,9 +339,8 @@ bool LX200Basic::Sync(double ra, double dec)
     currentRA  = ra;
     currentDEC = dec;
 
-    DEBUG(INDI::Logger::DBG_SESSION, "Synchronization successful.");
+    LOG_INFO("Synchronization successful.");
 
-    TrackState = SCOPE_IDLE;
     EqNP.s     = IPS_OK;
 
     NewRaDec(currentRA, currentDEC);
@@ -357,7 +353,7 @@ bool LX200Basic::Sync(double ra, double dec)
 ***************************************************************************************/
 bool LX200Basic::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (!strcmp(name, SlewAccuracyNP.name))
         {
@@ -382,9 +378,9 @@ bool LX200Basic::ISNewNumber(const char *dev, const char *name, double values[],
 ***************************************************************************************/
 bool LX200Basic::Abort()
 {
-    if (isSimulation() == false && abortSlew(PortFD) < 0)
+    if (!isSimulation() && abortSlew(PortFD) < 0)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Failed to abort slew.");
+        LOG_ERROR("Failed to abort slew.");
         return false;
     }
 
@@ -392,7 +388,7 @@ bool LX200Basic::Abort()
     TrackState = SCOPE_IDLE;
     IDSetNumber(&EqNP, nullptr);
 
-    DEBUG(INDI::Logger::DBG_SESSION, "Slew aborted.");
+    LOG_INFO("Slew aborted.");
     return true;
 }
 

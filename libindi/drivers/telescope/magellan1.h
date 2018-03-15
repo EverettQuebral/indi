@@ -23,8 +23,6 @@
 #include "indicom.h"
 #include "indidevapi.h"
 
-#define POLLMS 1000 /* poll period, ms */
-
 /*
    The device name below eventhough we have a Magellan I
    should remain set to a KStars registered telescope so
@@ -49,7 +47,7 @@ class Magellan1
     void handleError(ISwitchVectorProperty *svp, int err, const char *msg);
     void handleError(INumberVectorProperty *nvp, int err, const char *msg);
     void handleError(ITextVectorProperty *tvp, int err, const char *msg);
-    bool isTelescopeOn(void);
+    bool isTelescopeOn();
     void connectTelescope();
     void setCurrentDeviceName(const char *devName);
     void correctFault();

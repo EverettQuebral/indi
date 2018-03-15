@@ -27,18 +27,25 @@
 #include "connectionplugins/connectionserial.h"
 #include "connectionplugins/connectiontcp.h"
 
-#include <math.h>
-#include <string.h>
+#include <libnova/julian_day.h>
+#include <libnova/sidereal_time.h>
+#include <libnova/transform.h>
+
+#include <cerrno>
+#include <cmath>
+#include <cstring>
 #include <wordexp.h>
-#include <sys/errno.h>
 
 #define DOME_SLAVING_TAB "Slaving"
 #define DOME_COORD_THRESHOLD \
     0.1 /* Only send debug messages if the differences between old and new values of Az/Alt excceds this value */
 
-INDI::Dome::Dome()
+namespace INDI
 {
-    controller = new INDI::Controller(this);
+
+Dome::Dome()
+{
+    controller = new Controller(this);
 
     controller->setButtonCallback(buttonHelper);
 
@@ -54,17 +61,13 @@ INDI::Dome::Dome()
 
     parkDataType = PARK_NONE;
     Parkdatafile = "~/.indi/ParkData.xml";
-    IsParked     = false;
-    IsLocked     = true;
-    HaveLatLong  = false;
-    HaveRaDec    = false;
 }
 
-INDI::Dome::~Dome()
+Dome::~Dome()
 {
 }
 
-bool INDI::Dome::initProperties()
+bool Dome::initProperties()
 {
     DefaultDevice::initProperties(); //  let the base class flesh in what it wants
 
@@ -112,10 +115,10 @@ bool INDI::Dome::initProperties()
     IUFillNumberVector(&DomeMeasurementsNP, DomeMeasurementsN, 6, getDeviceName(), "DOME_MEASUREMENTS", "Measurements",
                        DOME_SLAVING_TAB, IP_RW, 60, IPS_OK);
 
-    IUFillSwitch(&OTASideS[0], "DM_OTA_SIDE_EAST", "East", ISS_ON);
+    IUFillSwitch(&OTASideS[0], "DM_OTA_SIDE_EAST", "East", ISS_OFF);
     IUFillSwitch(&OTASideS[1], "DM_OTA_SIDE_WEST", "West", ISS_OFF);
     IUFillSwitchVector(&OTASideSP, OTASideS, 2, getDeviceName(), "DM_OTA_SIDE", "Meridian side", DOME_SLAVING_TAB,
-                       IP_RW, ISR_1OFMANY, 60, IPS_OK);
+                       IP_RW, ISR_ATMOST1, 60, IPS_OK);
 
     IUFillSwitch(&DomeAutoSyncS[0], "DOME_AUTOSYNC_ENABLE", "Enable", ISS_OFF);
     IUFillSwitch(&DomeAutoSyncS[1], "DOME_AUTOSYNC_DISABLE", "Disable", ISS_ON);
@@ -156,7 +159,7 @@ bool INDI::Dome::initProperties()
     IUFillSwitch(&DomeShutterS[0], "SHUTTER_OPEN", "Open", ISS_OFF);
     IUFillSwitch(&DomeShutterS[1], "SHUTTER_CLOSE", "Close", ISS_ON);
     IUFillSwitchVector(&DomeShutterSP, DomeShutterS, 2, getDeviceName(), "DOME_SHUTTER", "Shutter", MAIN_CONTROL_TAB,
-                       IP_RW, ISR_1OFMANY, 60, IPS_OK);
+                       IP_RW, ISR_ATMOST1, 60, IPS_OK);
 
     IUFillSwitch(&ParkOptionS[0], "PARK_CURRENT", "Current", ISS_OFF);
     IUFillSwitch(&ParkOptionS[1], "PARK_DEFAULT", "Default", ISS_OFF);
@@ -166,14 +169,16 @@ bool INDI::Dome::initProperties()
 
     addDebugControl();
 
-    controller->mapController("Dome CW", "CW/Open", INDI::Controller::CONTROLLER_BUTTON, "BUTTON_1");
-    controller->mapController("Dome CCW", "CCW/Close", INDI::Controller::CONTROLLER_BUTTON, "BUTTON_2");
+    controller->mapController("Dome CW", "CW/Open", Controller::CONTROLLER_BUTTON, "BUTTON_1");
+    controller->mapController("Dome CCW", "CCW/Close", Controller::CONTROLLER_BUTTON, "BUTTON_2");
 
     controller->initProperties();
 
     IDSnoopDevice(ActiveDeviceT[0].text, "EQUATORIAL_EOD_COORD");
     IDSnoopDevice(ActiveDeviceT[0].text, "GEOGRAPHIC_COORD");
     IDSnoopDevice(ActiveDeviceT[0].text, "TELESCOPE_PARK");
+    if (CanAbsMove())
+        IDSnoopDevice(ActiveDeviceT[0].text, "TELESCOPE_PIER_SIDE");
 
     IDSnoopDevice(ActiveDeviceT[1].text, "WEATHER_STATUS");
 
@@ -196,7 +201,7 @@ bool INDI::Dome::initProperties()
     return true;
 }
 
-void INDI::Dome::ISGetProperties(const char *dev)
+void Dome::ISGetProperties(const char *dev)
 {
     //  First we let our parent populate
     DefaultDevice::ISGetProperties(dev);
@@ -210,7 +215,7 @@ void INDI::Dome::ISGetProperties(const char *dev)
     return;
 }
 
-bool INDI::Dome::updateProperties()
+bool Dome::updateProperties()
 {
     if (isConnected())
     {
@@ -299,10 +304,10 @@ bool INDI::Dome::updateProperties()
     return true;
 }
 
-bool INDI::Dome::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
+bool Dome::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
     //  first check if it's for our device
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (!strcmp(name, PresetNP.name))
         {
@@ -365,15 +370,15 @@ bool INDI::Dome::ISNewNumber(const char *dev, const char *name, double values[],
     return DefaultDevice::ISNewNumber(dev, name, values, names, n);
 }
 
-bool INDI::Dome::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
+bool Dome::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (!strcmp(PresetGotoSP.name, name))
         {
             if (domeState == DOME_PARKED)
             {
-                DEBUGDEVICE(getDeviceName(), INDI::Logger::DBG_ERROR,
+                DEBUGDEVICE(getDeviceName(), Logger::DBG_ERROR,
                             "Please unpark before issuing any motion commands.");
                 PresetGotoSP.s = IPS_ALERT;
                 IDSetSwitch(&PresetGotoSP, nullptr);
@@ -386,7 +391,7 @@ bool INDI::Dome::ISNewSwitch(const char *dev, const char *name, ISState *states,
             if (rc == IPS_OK || rc == IPS_BUSY)
             {
                 PresetGotoSP.s = IPS_OK;
-                DEBUGF(INDI::Logger::DBG_SESSION, "Moving to Preset %d (%g degrees).", index + 1, PresetN[index].value);
+                DEBUGF(Logger::DBG_SESSION, "Moving to Preset %d (%g degrees).", index + 1, PresetN[index].value);
                 IDSetSwitch(&PresetGotoSP, nullptr);
                 return true;
             }
@@ -541,9 +546,9 @@ bool INDI::Dome::ISNewSwitch(const char *dev, const char *name, ISState *states,
             {
                 rc = WriteParkData();
                 if (rc)
-                    DEBUG(INDI::Logger::DBG_SESSION, "Saved Park Status/Position.");
+                    DEBUG(Logger::DBG_SESSION, "Saved Park Status/Position.");
                 else
-                    DEBUG(INDI::Logger::DBG_WARNING, "Can not save Park Status/Position.");
+                    DEBUG(Logger::DBG_WARNING, "Can not save Park Status/Position.");
             }
 
             ParkOptionSP.s = rc ? IPS_OK : IPS_ALERT;
@@ -559,12 +564,12 @@ bool INDI::Dome::ISNewSwitch(const char *dev, const char *name, ISState *states,
             AutoParkSP.s = IPS_OK;
 
             if (AutoParkS[0].s == ISS_ON)
-                DEBUG(INDI::Logger::DBG_WARNING, "Warning: Auto park is enabled. If weather conditions are in the "
+                DEBUG(Logger::DBG_WARNING, "Warning: Auto park is enabled. If weather conditions are in the "
                                                  "danger zone, the dome will be automatically parked. Only enable this "
                                                  "option is parking the dome at any time will not cause damange to any "
                                                  "equipment.");
             else
-                DEBUG(INDI::Logger::DBG_SESSION, "Auto park is disabled.");
+                DEBUG(Logger::DBG_SESSION, "Auto park is disabled.");
 
             IDSetSwitch(&AutoParkSP, nullptr);
 
@@ -577,9 +582,9 @@ bool INDI::Dome::ISNewSwitch(const char *dev, const char *name, ISState *states,
             if (n == 1)
             {
                 if (!strcmp(names[0], TelescopeClosedLockT[0].name))
-                    DEBUG(INDI::Logger::DBG_SESSION, "Telescope parking policy set to: Ignore Telescope");
+                    DEBUG(Logger::DBG_SESSION, "Telescope parking policy set to: Ignore Telescope");
                 else if (!strcmp(names[0], TelescopeClosedLockT[1].name))
-                    DEBUG(INDI::Logger::DBG_SESSION, "Warning: Telescope parking policy set to: Telescope locks. This "
+                    DEBUG(Logger::DBG_SESSION, "Warning: Telescope parking policy set to: Telescope locks. This "
                                                      "disallows the dome from parking when telescope is unparked, and "
                                                      "can lead to damage to hardware if it rains!");
             }
@@ -598,9 +603,9 @@ bool INDI::Dome::ISNewSwitch(const char *dev, const char *name, ISState *states,
     return DefaultDevice::ISNewSwitch(dev, name, states, names, n);
 }
 
-bool INDI::Dome::ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
+bool Dome::ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (strcmp(name, ActiveDeviceTP.name) == 0)
         {
@@ -612,6 +617,8 @@ bool INDI::Dome::ISNewText(const char *dev, const char *name, char *texts[], cha
             IDSnoopDevice(ActiveDeviceT[0].text, "TARGET_EOD_COORD");
             IDSnoopDevice(ActiveDeviceT[0].text, "GEOGRAPHIC_COORD");
             IDSnoopDevice(ActiveDeviceT[0].text, "TELESCOPE_PARK");
+            if (CanAbsMove())
+                IDSnoopDevice(ActiveDeviceT[0].text, "TELESCOPE_PIER_SIDE");
             IDSnoopDevice(ActiveDeviceT[1].text, "WEATHER_STATUS");
 
             return true;
@@ -623,7 +630,7 @@ bool INDI::Dome::ISNewText(const char *dev, const char *name, char *texts[], cha
     return DefaultDevice::ISNewText(dev, name, texts, names, n);
 }
 
-bool INDI::Dome::ISSnoopDevice(XMLEle *root)
+bool Dome::ISSnoopDevice(XMLEle *root)
 {
     XMLEle *ep           = nullptr;
     const char *propName = findXMLAttValu(root, "name");
@@ -638,22 +645,27 @@ bool INDI::Dome::ISSnoopDevice(XMLEle *root)
         {
             const char *elemName = findXMLAttValu(ep, "name");
 
-            DEBUGF(INDI::Logger::DBG_DEBUG, "Snooped Target RA-DEC: %s", pcdataXMLEle(ep));
+            DEBUGF(Logger::DBG_DEBUG, "Snooped Target RA-DEC: %s", pcdataXMLEle(ep));
             if (!strcmp(elemName, "RA"))
                 rc_ra = f_scansexa(pcdataXMLEle(ep), &ra);
             else if (!strcmp(elemName, "DEC"))
                 rc_de = f_scansexa(pcdataXMLEle(ep), &de);
         }
         //  Dont start moving the dome till the mount has initialized all the variables
-        if (HaveRaDec)
+        if (HaveRaDec && CanAbsMove())
         {
             if (rc_ra == 0 && rc_de == 0)
             {
                 //  everything parsed ok, so lets start the dome to moving
+                //  If this slew involves a meridan flip, then the slaving calcs will end up using
+                //  the wrong OTA side.  Lets set things up so our slaving code will calculate the side
+                //  for the target slew instead of using mount pier side info
+                OTASideSP.s=IPS_IDLE;
+                IDSetSwitch(&OTASideSP,nullptr);
                 //  and see if we can get there at the same time as the mount
                 mountEquatorialCoords.ra  = ra * 15.0;
                 mountEquatorialCoords.dec = de;
-                DEBUGF(INDI::Logger::DBG_DEBUG, "Calling Update mount to anticipate goto target: %g - DEC: %g",
+                DEBUGF(Logger::DBG_DEBUG, "Calling Update mount to anticipate goto target: %g - DEC: %g",
                        mountEquatorialCoords.ra, mountEquatorialCoords.dec);
                 UpdateMountCoords();
             }
@@ -671,7 +683,7 @@ bool INDI::Dome::ISSnoopDevice(XMLEle *root)
         {
             const char *elemName = findXMLAttValu(ep, "name");
 
-            DEBUGF(INDI::Logger::DBG_DEBUG, "Snooped RA-DEC: %s", pcdataXMLEle(ep));
+            DEBUGF(Logger::DBG_DEBUG, "Snooped RA-DEC: %s", pcdataXMLEle(ep));
             if (!strcmp(elemName, "RA"))
                 rc_ra = f_scansexa(pcdataXMLEle(ep), &ra);
             else if (!strcmp(elemName, "DEC"))
@@ -693,7 +705,7 @@ bool INDI::Dome::ISSnoopDevice(XMLEle *root)
         {
             prev_ra  = mountEquatorialCoords.ra;
             prev_dec = mountEquatorialCoords.dec;
-            DEBUGF(INDI::Logger::DBG_DEBUG, "Snooped RA: %g - DEC: %g", mountEquatorialCoords.ra,
+            DEBUGF(Logger::DBG_DEBUG, "Snooped RA: %g - DEC: %g", mountEquatorialCoords.ra,
                    mountEquatorialCoords.dec);
             //  a mount still intializing will emit 0 and 0 on the first go
             //  we dont want to process 0/0
@@ -726,7 +738,7 @@ bool INDI::Dome::ISSnoopDevice(XMLEle *root)
                 f_scansexa(pcdataXMLEle(ep), &(observer.lat));
         }
 
-        DEBUGF(INDI::Logger::DBG_DEBUG, "Snooped LONG: %g - LAT: %g", observer.lng, observer.lat);
+        DEBUGF(Logger::DBG_DEBUG, "Snooped LONG: %g - LAT: %g", observer.lng, observer.lat);
 
         UpdateMountCoords();
 
@@ -749,7 +761,7 @@ bool INDI::Dome::ISSnoopDevice(XMLEle *root)
                     IsLocked = true;
             }
             if (prevState != IsLocked && TelescopeClosedLockT[1].s == ISS_ON)
-                DEBUGF(INDI::Logger::DBG_SESSION, "Telescope status changed. Lock is set to: %s",
+                DEBUGF(Logger::DBG_SESSION, "Telescope status changed. Lock is set to: %s",
                        IsLocked ? "locked" : "unlocked");
         }
         return true;
@@ -765,25 +777,51 @@ bool INDI::Dome::ISSnoopDevice(XMLEle *root)
         {
             if (CanPark() && AutoParkS[0].s == ISS_ON)
             {
-                if (isParked() == false)
+                if (!isParked())
                 {
-                    DEBUG(INDI::Logger::DBG_WARNING, "Weather conditions in the danger zone! Parking dome...");
+                    DEBUG(Logger::DBG_WARNING, "Weather conditions in the danger zone! Parking dome...");
                     Dome::Park();
                 }
             }
             else
-                DEBUG(INDI::Logger::DBG_WARNING, "Weather conditions in the danger zone! Close the dome immediately!");
+                DEBUG(Logger::DBG_WARNING, "Weather conditions in the danger zone! Close the dome immediately!");
 
             return true;
         }
     }
+    if (!strcmp("TELESCOPE_PIER_SIDE", propName))
+    {
+        // set defaults to say we have no valid information from mount
+        bool isEast=false;
+        bool isWest=false;
+        OTASideS[0].s=ISS_OFF;
+        OTASideS[1].s=ISS_OFF;
+        OTASideSP.s=IPS_IDLE;
+        //  crack the message
+        for (ep = nextXMLEle(root, 1); ep != nullptr; ep = nextXMLEle(root, 0))
+        {
+            const char *elemName = findXMLAttValu(ep, "name");
+
+            if (!strcmp(elemName, "PIER_EAST") && !strcmp(pcdataXMLEle(ep), "On"))
+                isEast = true;
+            else if (!strcmp(elemName, "PIER_WEST") && !strcmp(pcdataXMLEle(ep), "On"))
+                isWest = true;
+        }
+        //  update the switch
+        if(isEast) OTASideS[0].s=ISS_ON;
+        if(isWest) OTASideS[1].s=ISS_ON;
+        if(isWest || isEast) OTASideSP.s=IPS_OK;
+        //  and set it.  If we didn't get valid info, it'll be set to idle and neither 'button' pressed in the ui
+        IDSetSwitch(&OTASideSP,nullptr);
+        return true;
+    }
 
     controller->ISSnoopDevice(root);
 
-    return INDI::DefaultDevice::ISSnoopDevice(root);
+    return DefaultDevice::ISSnoopDevice(root);
 }
 
-bool INDI::Dome::saveConfigItems(FILE *fp)
+bool Dome::saveConfigItems(FILE *fp)
 {
     DefaultDevice::saveConfigItems(fp);
 
@@ -800,23 +838,23 @@ bool INDI::Dome::saveConfigItems(FILE *fp)
     return true;
 }
 
-void INDI::Dome::triggerSnoop(const char *driverName, const char *snoopedProp)
+void Dome::triggerSnoop(const char *driverName, const char *snoopedProp)
 {
-    DEBUGF(INDI::Logger::DBG_DEBUG, "Active Snoop, driver: %s, property: %s", driverName, snoopedProp);
+    DEBUGF(Logger::DBG_DEBUG, "Active Snoop, driver: %s, property: %s", driverName, snoopedProp);
     IDSnoopDevice(driverName, snoopedProp);
 }
 
-bool INDI::Dome::isLocked()
+bool Dome::isLocked()
 {
     return TelescopeClosedLockT[1].s == ISS_ON && IsLocked;
 }
 
-void INDI::Dome::buttonHelper(const char *button_n, ISState state, void *context)
+void Dome::buttonHelper(const char *button_n, ISState state, void *context)
 {
-    static_cast<INDI::Dome *>(context)->processButton(button_n, state);
+    static_cast<Dome *>(context)->processButton(button_n, state);
 }
 
-void INDI::Dome::processButton(const char *button_n, ISState state)
+void Dome::processButton(const char *button_n, ISState state)
 {
     //ignore OFF
     if (state == ISS_OFF)
@@ -843,22 +881,22 @@ void INDI::Dome::processButton(const char *button_n, ISState state)
     }
 }
 
-IPState INDI::Dome::getMountState() const
+IPState Dome::getMountState() const
 {
     return mountState;
 }
 
-IPState INDI::Dome::getWeatherState() const
+IPState Dome::getWeatherState() const
 {
     return weatherState;
 }
 
-INDI::Dome::DomeState INDI::Dome::Dome::getDomeState() const
+Dome::DomeState Dome::Dome::getDomeState() const
 {
     return domeState;
 }
 
-void INDI::Dome::setDomeState(const INDI::Dome::DomeState &value)
+void Dome::setDomeState(const Dome::DomeState &value)
 {
     switch (value)
     {
@@ -947,7 +985,7 @@ To do that we need to calculate the optical axis line taking the centre of the d
 // Az : Azimuth required to the dome in order to center the shutter aperture with telescope
 // minAz: Minimum azimuth in order to avoid any dome interference to the full aperture of the telescope
 // maxAz: Maximum azimuth in order to avoid any dome interference to the full aperture of the telescope
-bool INDI::Dome::GetTargetAz(double &Az, double &Alt, double &minAz, double &maxAz)
+bool Dome::GetTargetAz(double &Az, double &Alt, double &minAz, double &maxAz)
 {
     point3D MountCenter, OptCenter, OptVector, DomeIntersect;
     double hourAngle;
@@ -957,45 +995,68 @@ bool INDI::Dome::GetTargetAz(double &Az, double &Alt, double &minAz, double &max
     double RadiusAtAlt;
     int OTASide = 1; /* Side of the telescope with respect of the mount, 1: east, -1: west*/
 
+    if (HaveLatLong == false)
+    {
+        triggerSnoop(ActiveDeviceT[0].text, "GEOGRAPHIC_COORD");
+        DEBUG(Logger::DBG_WARNING, "Geographic coordinates are not yet defined, triggering snoop...");
+        return false;
+    }
+
     double JD  = ln_get_julian_from_sys();
     double MSD = ln_get_mean_sidereal_time(JD);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "JD: %g - MSD: %g", JD, MSD);
+    DEBUGF(Logger::DBG_DEBUG, "JD: %g - MSD: %g", JD, MSD);
 
-    MountCenter.x = DomeMeasurementsN[DM_NORTH_DISPLACEMENT].value; // Positive to North
-    MountCenter.y = DomeMeasurementsN[DM_EAST_DISPLACEMENT].value;  // Positive to East
+    MountCenter.x = DomeMeasurementsN[DM_EAST_DISPLACEMENT].value; // Positive to East
+    MountCenter.y = DomeMeasurementsN[DM_NORTH_DISPLACEMENT].value;  // Positive to North
     MountCenter.z = DomeMeasurementsN[DM_UP_DISPLACEMENT].value;    // Positive Up
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "MC.x: %g - MC.y: %g MC.z: %g", MountCenter.x, MountCenter.y, MountCenter.z);
+    DEBUGF(Logger::DBG_DEBUG, "MC.x: %g - MC.y: %g MC.z: %g", MountCenter.x, MountCenter.y, MountCenter.z);
 
     // Get hour angle in hours
-    hourAngle = MSD + observer.lng / 15.0 - mountEquatorialCoords.ra / 15.0;
+    hourAngle = rangeHA( MSD + observer.lng / 15.0 - mountEquatorialCoords.ra / 15.0);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "HA: %g  Lng: %g RA: %g", hourAngle, observer.lng, mountEquatorialCoords.ra);
+    DEBUGF(Logger::DBG_DEBUG, "HA: %g  Lng: %g RA: %g", hourAngle, observer.lng, mountEquatorialCoords.ra);
 
-    // Get optical center point
-    if (OTASideS[0].s != ISS_ON)
-        OTASide = -1;
+    //  this will have state OK if the mount sent us information
+    //  and it will be IDLE if not
+    if(CanAbsMove() && OTASideSP.s==IPS_OK)
+    {
+        // process info from the mount
+        if(OTASideS[0].s==ISS_ON) OTASide=-1;
+        else OTASide=1;
+    }
+    else
+    {
+    	//  figure out the pier side without help from the mount
+        if(hourAngle > 0) OTASide=-1;
+        else OTASide=1;
+        //  if we got here because we turned off the PIER_SIDE switches in a target goto
+        //  lets try get it back on
+        if (CanAbsMove())
+            triggerSnoop(ActiveDeviceT[0].text, "TELESCOPE_PIER_SIDE");
+
+    }
 
     OpticalCenter(MountCenter, OTASide * DomeMeasurementsN[DM_OTA_OFFSET].value, observer.lat, hourAngle, OptCenter);
 
-    DEBUGF(INDI::Logger::DBG_DEBUG, "OTA_SIDE: %d", OTASide);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "OTA_OFFSET: %g  Lat: %g", DomeMeasurementsN[DM_OTA_OFFSET].value, observer.lat);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "OC.x: %g - OC.y: %g OC.z: %g", OptCenter.x, OptCenter.y, OptCenter.z);
+    DEBUGF(Logger::DBG_DEBUG, "OTA_SIDE: %d", OTASide);
+    DEBUGF(Logger::DBG_DEBUG, "OTA_OFFSET: %g  Lat: %g", DomeMeasurementsN[DM_OTA_OFFSET].value, observer.lat);
+    DEBUGF(Logger::DBG_DEBUG, "OC.x: %g - OC.y: %g OC.z: %g", OptCenter.x, OptCenter.y, OptCenter.z);
 
     // To be sure mountHoriztonalCoords is up to date.
     ln_get_hrz_from_equ(&mountEquatorialCoords, &observer, JD, &mountHoriztonalCoords);
 
     mountHoriztonalCoords.az += 180;
-    if (mountHoriztonalCoords.az > 360)
+    if (mountHoriztonalCoords.az >= 360)
         mountHoriztonalCoords.az -= 360;
     if (mountHoriztonalCoords.az < 0)
         mountHoriztonalCoords.az += 360;
 
     // Get optical axis point. This and the previous form the optical axis line
     OpticalVector(mountHoriztonalCoords.az, mountHoriztonalCoords.alt, OptVector);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "Mount Az: %g  Alt: %g", mountHoriztonalCoords.az, mountHoriztonalCoords.alt);
-    DEBUGF(INDI::Logger::DBG_DEBUG, "OV.x: %g - OV.y: %g OV.z: %g", OptVector.x, OptVector.y, OptVector.z);
+    DEBUGF(Logger::DBG_DEBUG, "Mount Az: %g  Alt: %g", mountHoriztonalCoords.az, mountHoriztonalCoords.alt);
+    DEBUGF(Logger::DBG_DEBUG, "OV.x: %g - OV.y: %g OV.z: %g", OptVector.x, OptVector.y, OptVector.z);
 
     if (Intersection(OptCenter, OptVector, DomeMeasurementsN[DM_DOME_RADIUS].value, mu1, mu2))
     {
@@ -1003,11 +1064,11 @@ bool INDI::Dome::GetTargetAz(double &Az, double &Alt, double &minAz, double &max
         if (mu1 < 0)
             mu1 = mu2;
 
-        DomeIntersect.x = OptCenter.x + mu1 * (OptVector.x - OptCenter.x);
-        DomeIntersect.y = OptCenter.y + mu1 * (OptVector.y - OptCenter.y);
-        DomeIntersect.z = OptCenter.z + mu1 * (OptVector.z - OptCenter.z);
+        DomeIntersect.x = OptCenter.x + mu1 * (OptVector.x );
+        DomeIntersect.y = OptCenter.y + mu1 * (OptVector.y );
+        DomeIntersect.z = OptCenter.z + mu1 * (OptVector.z );
 
-        if (fabs(DomeIntersect.x) > 0.001)
+        if (fabs(DomeIntersect.x) > 0.00001)
         {
             yx = DomeIntersect.y / DomeIntersect.x;
             Az = 90 - 180 * atan(yx) / M_PI;
@@ -1029,7 +1090,7 @@ bool INDI::Dome::GetTargetAz(double &Az, double &Alt, double &minAz, double &max
                 Az = 270;
         }
 
-        if ((fabs(DomeIntersect.x) > 0.001) || (fabs(DomeIntersect.y) > 0.001))
+        if ((fabs(DomeIntersect.x) > 0.00001) || (fabs(DomeIntersect.y) > 0.00001))
             Alt = 180 *
                   atan(DomeIntersect.z /
                        sqrt((DomeIntersect.x * DomeIntersect.x) + (DomeIntersect.y * DomeIntersect.y))) /
@@ -1062,7 +1123,7 @@ bool INDI::Dome::GetTargetAz(double &Az, double &Alt, double &minAz, double &max
     return false;
 }
 
-bool INDI::Dome::Intersection(point3D p1, point3D dp, double r, double &mu1, double &mu2)
+bool Dome::Intersection(point3D p1, point3D dp, double r, double &mu1, double &mu2)
 {
     double a, b, c;
     double bb4ac;
@@ -1086,7 +1147,7 @@ bool INDI::Dome::Intersection(point3D p1, point3D dp, double r, double &mu1, dou
     return true;
 }
 
-bool INDI::Dome::OpticalCenter(point3D MountCenter, double dOpticalAxis, double Lat, double Ah, point3D &OP)
+bool Dome::OpticalCenter(point3D MountCenter, double dOpticalAxis, double Lat, double Ah, point3D &OP)
 {
     double q, f;
     double cosf, sinf, cosq, sinq;
@@ -1107,7 +1168,7 @@ bool INDI::Dome::OpticalCenter(point3D MountCenter, double dOpticalAxis, double 
     return true;
 }
 
-bool INDI::Dome::OpticalVector(double Az, double Alt, point3D &OV)
+bool Dome::OpticalVector(double Az, double Alt, point3D &OV)
 {
     double q, f;
 
@@ -1120,17 +1181,17 @@ bool INDI::Dome::OpticalVector(double Az, double Alt, point3D &OV)
     return true;
 }
 
-double INDI::Dome::Csc(double x)
+double Dome::Csc(double x)
 {
     return 1.0 / sin(x);
 }
 
-double INDI::Dome::Sec(double x)
+double Dome::Sec(double x)
 {
     return 1.0 / cos(x);
 }
 
-bool INDI::Dome::CheckHorizon(double HA, double dec, double lat)
+bool Dome::CheckHorizon(double HA, double dec, double lat)
 {
     double sinh_value;
 
@@ -1142,7 +1203,7 @@ bool INDI::Dome::CheckHorizon(double HA, double dec, double lat)
     return false;
 }
 
-void INDI::Dome::UpdateMountCoords()
+void Dome::UpdateMountCoords()
 {
     // If not initialized yet, return.
     if (mountEquatorialCoords.ra == -1)
@@ -1168,14 +1229,14 @@ void INDI::Dome::UpdateMountCoords()
     {
         prev_az  = mountHoriztonalCoords.az;
         prev_alt = mountHoriztonalCoords.alt;
-        DEBUGF(INDI::Logger::DBG_DEBUG, "Updated telescope Az: %g - Alt: %g", prev_az, prev_alt);
+        DEBUGF(Logger::DBG_DEBUG, "Updated telescope Az: %g - Alt: %g", prev_az, prev_alt);
     }
 
     // Check if we need to move
     UpdateAutoSync();
 }
 
-void INDI::Dome::UpdateAutoSync()
+void Dome::UpdateAutoSync()
 {
     if ((mountState == IPS_OK || mountState == IPS_IDLE) && DomeAbsPosNP.s != IPS_BUSY && DomeAutoSyncS[0].s == ISS_ON)
     {
@@ -1183,7 +1244,7 @@ void INDI::Dome::UpdateAutoSync()
         {
             if (isParked() == true)
             {
-                DEBUG(INDI::Logger::DBG_WARNING,
+                DEBUG(Logger::DBG_WARNING,
                       "Cannot perform autosync with dome parked. Please unpark to enable autosync operation.");
                 return;
             }
@@ -1194,21 +1255,21 @@ void INDI::Dome::UpdateAutoSync()
         res = GetTargetAz(targetAz, targetAlt, minAz, maxAz);
         if (!res)
         {
-            DEBUGF(INDI::Logger::DBG_DEBUG, "GetTargetAz failed %g", targetAz);
+            DEBUGF(Logger::DBG_DEBUG, "GetTargetAz failed %g", targetAz);
             return;
         }
-        DEBUGF(INDI::Logger::DBG_DEBUG, "Calculated target azimuth is %g. MinAz: %g, MaxAz: %g", targetAz, minAz,
+        DEBUGF(Logger::DBG_DEBUG, "Calculated target azimuth is %g. MinAz: %g, MaxAz: %g", targetAz, minAz,
                maxAz);
 
         if (fabs(targetAz - DomeAbsPosN[0].value) > DomeParamN[0].value)
         {
             IPState ret = Dome::MoveAbs(targetAz);
             if (ret == IPS_OK)
-                DEBUGF(INDI::Logger::DBG_SESSION, "Dome synced to position %g degrees.", targetAz);
+                DEBUGF(Logger::DBG_SESSION, "Dome synced to position %g degrees.", targetAz);
             else if (ret == IPS_BUSY)
-                DEBUGF(INDI::Logger::DBG_SESSION, "Dome is syncing to position %g degrees...", targetAz);
+                DEBUGF(Logger::DBG_SESSION, "Dome is syncing to position %g degrees...", targetAz);
             else
-                DEBUG(INDI::Logger::DBG_SESSION, "Dome failed to sync to new requested position.");
+                DEBUG(Logger::DBG_SESSION, "Dome failed to sync to new requested position.");
 
             DomeAbsPosNP.s = ret;
             IDSetNumber(&DomeAbsPosNP, nullptr);
@@ -1216,15 +1277,15 @@ void INDI::Dome::UpdateAutoSync()
     }
 }
 
-void INDI::Dome::SetDomeCapability(uint32_t cap)
+void Dome::SetDomeCapability(uint32_t cap)
 {
     capability = cap;
 
     if (CanAbort())
-        controller->mapController("Dome Abort", "Dome Abort", INDI::Controller::CONTROLLER_BUTTON, "BUTTON_3");
+        controller->mapController("Dome Abort", "Dome Abort", Controller::CONTROLLER_BUTTON, "BUTTON_3");
 }
 
-const char *INDI::Dome::GetShutterStatusString(ShutterStatus status)
+const char *Dome::GetShutterStatusString(ShutterStatus status)
 {
     switch (status)
     {
@@ -1244,7 +1305,7 @@ const char *INDI::Dome::GetShutterStatusString(ShutterStatus status)
     }
 }
 
-void INDI::Dome::SetParkDataType(INDI::Dome::DomeParkData type)
+void Dome::SetParkDataType(Dome::DomeParkData type)
 {
     parkDataType = type;
 
@@ -1274,7 +1335,7 @@ void INDI::Dome::SetParkDataType(INDI::Dome::DomeParkData type)
     }
 }
 
-void INDI::Dome::SetParked(bool isparked)
+void Dome::SetParked(bool isparked)
 {
     IsParked = isparked;
 
@@ -1283,29 +1344,29 @@ void INDI::Dome::SetParked(bool isparked)
     if (IsParked)
     {
         setDomeState(DOME_PARKED);
-        DEBUG(INDI::Logger::DBG_SESSION, "Dome is parked.");
+        DEBUG(Logger::DBG_SESSION, "Dome is parked.");
     }
     else
     {
         setDomeState(DOME_UNPARKED);
-        DEBUG(INDI::Logger::DBG_SESSION, "Dome is unparked.");
+        DEBUG(Logger::DBG_SESSION, "Dome is unparked.");
     }
 
     WriteParkData();
 }
 
-bool INDI::Dome::isParked()
+bool Dome::isParked()
 {
     return IsParked;
 }
 
-bool INDI::Dome::InitPark()
+bool Dome::InitPark()
 {
     char *loadres;
     loadres = LoadParkData();
     if (loadres)
     {
-        DEBUGF(INDI::Logger::DBG_SESSION, "InitPark: No Park data in file %s: %s", Parkdatafile, loadres);
+        DEBUGF(Logger::DBG_SESSION, "InitPark: No Park data in file %s: %s", Parkdatafile, loadres);
         SetParked(false);
         return false;
     }
@@ -1326,12 +1387,12 @@ bool INDI::Dome::InitPark()
     return true;
 }
 
-char *INDI::Dome::LoadParkData()
+char *Dome::LoadParkData()
 {
     wordexp_t wexp;
     FILE *fp;
     LilXML *lp;
-    static char errmsg[512];
+    static char errmsg[512]={0};
 
     XMLEle *parkxml;
     XMLAtt *ap;
@@ -1421,23 +1482,23 @@ char *INDI::Dome::LoadParkData()
     return nullptr;
 }
 
-bool INDI::Dome::WriteParkData()
+bool Dome::WriteParkData()
 {
     wordexp_t wexp;
     FILE *fp;
-    char pcdata[30];
+    char pcdata[30]={0};
 
     if (wordexp(Parkdatafile, &wexp, 0))
     {
         wordfree(&wexp);
-        DEBUGF(INDI::Logger::DBG_SESSION, "WriteParkData: can not write file %s: Badly formed filename.", Parkdatafile);
+        DEBUGF(Logger::DBG_SESSION, "WriteParkData: can not write file %s: Badly formed filename.", Parkdatafile);
         return false;
     }
 
     if (!(fp = fopen(wexp.we_wordv[0], "w")))
     {
         wordfree(&wexp);
-        DEBUGF(INDI::Logger::DBG_SESSION, "WriteParkData: can not write file %s: %s", Parkdatafile, strerror(errno));
+        DEBUGF(Logger::DBG_SESSION, "WriteParkData: can not write file %s: %s", Parkdatafile, strerror(errno));
         return false;
     }
 
@@ -1447,7 +1508,7 @@ bool INDI::Dome::WriteParkData()
     if (!ParkdeviceXml)
     {
         ParkdeviceXml = addXMLEle(ParkdataXmlRoot, "device");
-        addXMLAtt(ParkdeviceXml, "name", ParkDeviceName);
+        addXMLAtt(ParkdeviceXml, "name", ParkDeviceName == nullptr ? getDeviceName() : ParkDeviceName);
     }
 
     if (!ParkstatusXml)
@@ -1475,36 +1536,36 @@ bool INDI::Dome::WriteParkData()
     return true;
 }
 
-double INDI::Dome::GetAxis1Park()
+double Dome::GetAxis1Park()
 {
     return Axis1ParkPosition;
 }
 
-double INDI::Dome::GetAxis1ParkDefault()
+double Dome::GetAxis1ParkDefault()
 {
     return Axis1DefaultParkPosition;
 }
 
-void INDI::Dome::SetAxis1Park(double value)
+void Dome::SetAxis1Park(double value)
 {
     Axis1ParkPosition            = value;
     ParkPositionN[AXIS_RA].value = value;
     IDSetNumber(&ParkPositionNP, nullptr);
 }
 
-void INDI::Dome::SetAxis1ParkDefault(double value)
+void Dome::SetAxis1ParkDefault(double value)
 {
     Axis1DefaultParkPosition = value;
 }
 
-IPState INDI::Dome::Move(DomeDirection dir, DomeMotionCommand operation)
+IPState Dome::Move(DomeDirection dir, DomeMotionCommand operation)
 {
     // Check if it is already parked.
     if (CanPark())
     {
         if (parkDataType != PARK_NONE && isParked())
         {
-            DEBUG(INDI::Logger::DBG_WARNING, "Please unpark the dome before issuing any motion commands.");
+            DEBUG(Logger::DBG_WARNING, "Please unpark the dome before issuing any motion commands.");
             return IPS_ALERT;
         }
     }
@@ -1512,7 +1573,7 @@ IPState INDI::Dome::Move(DomeDirection dir, DomeMotionCommand operation)
     if ((DomeMotionSP.s != IPS_BUSY && (DomeAbsPosNP.s == IPS_BUSY || DomeRelPosNP.s == IPS_BUSY)) ||
         (domeState == DOME_PARKING))
     {
-        DEBUG(INDI::Logger::DBG_WARNING, "Please stop dome before issuing any further motion commands.");
+        DEBUG(Logger::DBG_WARNING, "Please stop dome before issuing any further motion commands.");
         return IPS_ALERT;
     }
 
@@ -1537,17 +1598,17 @@ IPState INDI::Dome::Move(DomeDirection dir, DomeMotionCommand operation)
     return DomeMotionSP.s;
 }
 
-IPState INDI::Dome::MoveRel(double azDiff)
+IPState Dome::MoveRel(double azDiff)
 {
     if (CanRelMove() == false)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Dome does not support relative motion.");
+        DEBUG(Logger::DBG_ERROR, "Dome does not support relative motion.");
         return IPS_ALERT;
     }
 
     if (domeState == DOME_PARKED)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Please unpark before issuing any motion commands.");
+        DEBUG(Logger::DBG_ERROR, "Please unpark before issuing any motion commands.");
         DomeRelPosNP.s = IPS_ALERT;
         IDSetNumber(&DomeRelPosNP, nullptr);
         return IPS_ALERT;
@@ -1555,7 +1616,7 @@ IPState INDI::Dome::MoveRel(double azDiff)
 
     if ((DomeRelPosNP.s != IPS_BUSY && DomeMotionSP.s == IPS_BUSY) || (domeState == DOME_PARKING))
     {
-        DEBUG(INDI::Logger::DBG_WARNING, "Please stop dome before issuing any further motion commands.");
+        DEBUG(Logger::DBG_WARNING, "Please stop dome before issuing any further motion commands.");
         DomeRelPosNP.s = IPS_IDLE;
         IDSetNumber(&DomeRelPosNP, nullptr);
         return IPS_ALERT;
@@ -1604,18 +1665,18 @@ IPState INDI::Dome::MoveRel(double azDiff)
     return IPS_ALERT;
 }
 
-IPState INDI::Dome::MoveAbs(double az)
+IPState Dome::MoveAbs(double az)
 {
     if (CanAbsMove() == false)
     {
-        DEBUG(INDI::Logger::DBG_ERROR,
+        DEBUG(Logger::DBG_ERROR,
               "Dome does not support MoveAbs(). MoveAbs() must be implemented in the child class.");
         return IPS_ALERT;
     }
 
     if (domeState == DOME_PARKED)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Please unpark before issuing any motion commands.");
+        DEBUG(Logger::DBG_ERROR, "Please unpark before issuing any motion commands.");
         DomeAbsPosNP.s = IPS_ALERT;
         IDSetNumber(&DomeAbsPosNP, nullptr);
         return IPS_ALERT;
@@ -1623,7 +1684,7 @@ IPState INDI::Dome::MoveAbs(double az)
 
     if ((DomeRelPosNP.s != IPS_BUSY && DomeMotionSP.s == IPS_BUSY) || (domeState == DOME_PARKING))
     {
-        DEBUG(INDI::Logger::DBG_WARNING, "Please stop dome before issuing any further motion commands.");
+        DEBUG(Logger::DBG_WARNING, "Please stop dome before issuing any further motion commands.");
         return IPS_ALERT;
     }
 
@@ -1631,7 +1692,7 @@ IPState INDI::Dome::MoveAbs(double az)
 
     if (az < DomeAbsPosN[0].min || az > DomeAbsPosN[0].max)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Error: requested azimuth angle %g is out of range.", az);
+        DEBUGF(Logger::DBG_ERROR, "Error: requested azimuth angle %g is out of range.", az);
         DomeAbsPosNP.s = IPS_ALERT;
         IDSetNumber(&DomeAbsPosNP, nullptr);
         return IPS_ALERT;
@@ -1642,7 +1703,7 @@ IPState INDI::Dome::MoveAbs(double az)
         domeState            = DOME_IDLE;
         DomeAbsPosNP.s       = IPS_OK;
         DomeAbsPosN[0].value = az;
-        DEBUGF(INDI::Logger::DBG_SESSION, "Dome moved to position %g degrees.", az);
+        DEBUGF(Logger::DBG_SESSION, "Dome moved to position %g degrees.", az);
         IDSetNumber(&DomeAbsPosNP, nullptr);
 
         return IPS_OK;
@@ -1651,7 +1712,7 @@ IPState INDI::Dome::MoveAbs(double az)
     {
         domeState      = DOME_MOVING;
         DomeAbsPosNP.s = IPS_BUSY;
-        DEBUGF(INDI::Logger::DBG_SESSION, "Dome is moving to position %g degrees...", az);
+        DEBUGF(Logger::DBG_SESSION, "Dome is moving to position %g degrees...", az);
         IDSetNumber(&DomeAbsPosNP, nullptr);
 
         DomeMotionSP.s = IPS_BUSY;
@@ -1669,11 +1730,11 @@ IPState INDI::Dome::MoveAbs(double az)
     return IPS_ALERT;
 }
 
-bool INDI::Dome::Abort()
+bool Dome::Abort()
 {
     if (CanAbort() == false)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Dome does not support abort.");
+        DEBUG(Logger::DBG_ERROR, "Dome does not support abort.");
         return false;
     }
 
@@ -1688,13 +1749,13 @@ bool INDI::Dome::Abort()
             IUResetSwitch(&ParkSP);
             if (domeState == DOME_PARKING)
             {
-                DEBUG(INDI::Logger::DBG_SESSION, "Parking aborted.");
+                DEBUG(Logger::DBG_SESSION, "Parking aborted.");
                 // If parking was aborted then it was UNPARKED before
                 ParkS[1].s = ISS_ON;
             }
             else
             {
-                DEBUG(INDI::Logger::DBG_SESSION, "UnParking aborted.");
+                DEBUG(Logger::DBG_SESSION, "UnParking aborted.");
                 // If unparking aborted then it was PARKED before
                 ParkS[0].s = ISS_ON;
             }
@@ -1723,11 +1784,11 @@ bool INDI::Dome::Abort()
     return (AbortSP.s == IPS_OK);
 }
 
-bool INDI::Dome::SetSpeed(double speed)
+bool Dome::SetSpeed(double speed)
 {
     if (HasVariableSpeed() == false)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Dome does not support variable speed.");
+        DEBUG(Logger::DBG_ERROR, "Dome does not support variable speed.");
         return false;
     }
 
@@ -1744,17 +1805,17 @@ bool INDI::Dome::SetSpeed(double speed)
     return (DomeSpeedNP.s == IPS_OK);
 }
 
-IPState INDI::Dome::ControlShutter(ShutterOperation operation)
+IPState Dome::ControlShutter(ShutterOperation operation)
 {
     if (HasShutter() == false)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Dome does not have shutter control.");
+        DEBUG(Logger::DBG_ERROR, "Dome does not have shutter control.");
         return IPS_ALERT;
     }
 
     if (weatherState == IPS_ALERT && operation == SHUTTER_OPEN)
     {
-        DEBUG(INDI::Logger::DBG_WARNING, "Weather is in the danger zone! Cannot open shutter.");
+        DEBUG(Logger::DBG_WARNING, "Weather is in the danger zone! Cannot open shutter.");
         return IPS_ALERT;
     }
 
@@ -1788,11 +1849,11 @@ IPState INDI::Dome::ControlShutter(ShutterOperation operation)
     return IPS_ALERT;
 }
 
-IPState INDI::Dome::Park()
+IPState Dome::Park()
 {
     if (CanPark() == false)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Dome does not support parking.");
+        DEBUG(Logger::DBG_ERROR, "Dome does not support parking.");
         return IPS_ALERT;
     }
 
@@ -1800,7 +1861,7 @@ IPState INDI::Dome::Park()
     {
         IUResetSwitch(&ParkSP);
         ParkS[0].s = ISS_ON;
-        DEBUG(INDI::Logger::DBG_SESSION, "Dome already parked.");
+        DEBUG(Logger::DBG_SESSION, "Dome already parked.");
         IDSetSwitch(&ParkSP, nullptr);
         return IPS_OK;
     }
@@ -1825,11 +1886,11 @@ IPState INDI::Dome::Park()
     return ParkSP.s;
 }
 
-IPState INDI::Dome::UnPark()
+IPState Dome::UnPark()
 {
     if (CanPark() == false)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Dome does not support parking.");
+        DEBUG(Logger::DBG_ERROR, "Dome does not support parking.");
         return IPS_ALERT;
     }
 
@@ -1837,14 +1898,14 @@ IPState INDI::Dome::UnPark()
     {
         IUResetSwitch(&ParkSP);
         ParkS[1].s = ISS_ON;
-        DEBUG(INDI::Logger::DBG_SESSION, "Dome already unparked.");
+        DEBUG(Logger::DBG_SESSION, "Dome already unparked.");
         IDSetSwitch(&ParkSP, nullptr);
         return IPS_OK;
     }
 
     if (weatherState == IPS_ALERT)
     {
-        DEBUG(INDI::Logger::DBG_WARNING, "Weather is in the danger zone! Cannot unpark dome.");
+        DEBUG(Logger::DBG_WARNING, "Weather is in the danger zone! Cannot unpark dome.");
         ParkSP.s = IPS_OK;
         IDSetSwitch(&ParkSP, nullptr);
         return IPS_ALERT;
@@ -1862,24 +1923,24 @@ IPState INDI::Dome::UnPark()
     return ParkSP.s;
 }
 
-bool INDI::Dome::SetCurrentPark()
+bool Dome::SetCurrentPark()
 {
-    DEBUG(INDI::Logger::DBG_WARNING, "Parking is not supported.");
+    DEBUG(Logger::DBG_WARNING, "Parking is not supported.");
     return false;
 }
 
-bool INDI::Dome::SetDefaultPark()
+bool Dome::SetDefaultPark()
 {
-    DEBUG(INDI::Logger::DBG_WARNING, "Parking is not supported.");
+    DEBUG(Logger::DBG_WARNING, "Parking is not supported.");
     return false;
 }
 
-bool INDI::Dome::Handshake()
+bool Dome::Handshake()
 {
     return false;
 }
 
-bool INDI::Dome::callHandshake()
+bool Dome::callHandshake()
 {
     if (domeConnection > 0)
     {
@@ -1892,20 +1953,22 @@ bool INDI::Dome::callHandshake()
     return Handshake();
 }
 
-uint8_t INDI::Dome::getDomeConnection() const
+uint8_t Dome::getDomeConnection() const
 {
     return domeConnection;
 }
 
-void INDI::Dome::setDomeConnection(const uint8_t &value)
+void Dome::setDomeConnection(const uint8_t &value)
 {
     uint8_t mask = CONNECTION_SERIAL | CONNECTION_TCP | CONNECTION_NONE;
 
     if (value == 0 || (mask & value) == 0)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "Invalid connection mode %d", value);
+        DEBUGF(Logger::DBG_ERROR, "Invalid connection mode %d", value);
         return;
     }
 
     domeConnection = value;
+}
+
 }

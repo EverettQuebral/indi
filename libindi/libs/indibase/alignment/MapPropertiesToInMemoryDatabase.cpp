@@ -121,7 +121,7 @@ void MapPropertiesToInMemoryDatabase::ProcessNumberProperties(Telescope *pTelesc
 void MapPropertiesToInMemoryDatabase::ProcessSwitchProperties(Telescope *pTelescope, const char *name, ISState *states,
                                                               char *names[], int n)
 {
-    DEBUGFDEVICE(pTelescope->getDeviceName(), INDI::Logger::DBG_DEBUG, "ProcessSwitchProperties - name(%s)", name);
+    //DEBUGFDEVICE(pTelescope->getDeviceName(), INDI::Logger::DBG_DEBUG, "ProcessSwitchProperties - name(%s)", name);
     AlignmentDatabaseType &AlignmentDatabase = GetAlignmentDatabase();
     if (strcmp(name, AlignmentPointSetActionV.name) == 0)
     {
@@ -256,7 +256,7 @@ void MapPropertiesToInMemoryDatabase::ProcessSwitchProperties(Telescope *pTelesc
 void MapPropertiesToInMemoryDatabase::UpdateLocation(double latitude, double longitude, double elevation)
 {
     INDI_UNUSED(elevation);
-    ln_lnlat_posn Position;
+    ln_lnlat_posn Position { 0, 0 };
 
     if (GetDatabaseReferencePosition(Position))
     {

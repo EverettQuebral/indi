@@ -32,14 +32,16 @@
 //#include "indilogger.h"
 #include "v4l2_decode/v4l2_decode.h"
 // for direct recording
-#include "v4l2_record/v4l2_record.h"
+#include "stream/streammanager.h"
 
 #include <stdio.h>
-#include <stdlib.h>
+#include <cstdlib>
 
 #include <linux/videodev2.h>
 
 #define VIDEO_COMPRESSION_LEVEL 4
+
+class V4L2_Driver;
 
 enum
 {
@@ -47,6 +49,9 @@ enum
     LX_TRIGGERED,
     LX_ACCUMULATING
 };
+
+namespace INDI
+{
 
 class V4L2_Base
 {
@@ -66,6 +71,7 @@ class V4L2_Base
     virtual int connectCam(const char *devpath, char *errmsg, int pixelFormat = -1, int width = -1, int height = -1);
     virtual void disconnectCam(bool stopcapture);
     char *getDeviceName();
+    void setDeviceName(const char *name);
     bool isLXmodCapable();
 
     /* Updates */
@@ -98,9 +104,9 @@ class V4L2_Base
     static void newFrame(int fd, void *p);
 
     //void setDropFrameCount(unsigned int count) { dropFrameCount = count;}
-    void enumerate_ctrl(void);
-    void enumerate_menu(void);
-    bool enumerate_ext_ctrl(void);
+    void enumerate_ctrl();
+    void enumerate_menu();
+    bool enumerate_ext_ctrl();
     int queryINTControls(INumberVectorProperty *nvp);
     bool queryExtControls(INumberVectorProperty *nvp, unsigned int *nnumber, ISwitchVectorProperty **options,
                           unsigned int *noptions, const char *dev, const char *group);
@@ -133,9 +139,7 @@ class V4L2_Base
     short getlxstate() { return lxstate; }
     bool isstreamactive() { return streamactive; }
 
-    void doDecode(bool);
-    void setRecorder(V4L2_Recorder *r);
-    void doRecord(bool);
+    void doDecode(bool);    
 
   protected:
     int xioctl(int fd, int request, void *arg, char const *const request_str);
@@ -149,7 +153,7 @@ class V4L2_Base
     int init_mmap(char *errmsg);
     int errno_exit(const char *s, char *errmsg);
 
-    void close_device(void);
+    void close_device();
     void init_userp(unsigned int buffer_size);
     void init_read(unsigned int buffer_size);
 
@@ -206,13 +210,10 @@ class V4L2_Base
     V4L2_Decoder *decoder;
     bool dodecode;
 
-    V4L2_Record *v4l2_record;
-    V4L2_Recorder *recorder;
-    bool dorecord;
-
     int bpp;
 
-    friend class V4L2_Driver;
+    friend class ::V4L2_Driver;
 
     char deviceName[MAXINDIDEVICE];
 };
+}

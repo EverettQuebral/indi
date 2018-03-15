@@ -25,10 +25,8 @@
 #include "gpdriver.h"
 
 #include <memory>
-#include <string.h>
+#include <cstring>
 #include <unistd.h>
-
-#define POLLMS 250
 
 // We declare an auto pointer to gpGuide.
 std::unique_ptr<GPUSB> gpGuide(new GPUSB());
@@ -38,19 +36,19 @@ void ISGetProperties(const char *dev)
     gpGuide->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    gpGuide->ISNewSwitch(dev, name, states, names, num);
+    gpGuide->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    gpGuide->ISNewText(dev, name, texts, names, num);
+    gpGuide->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    gpGuide->ISNewNumber(dev, name, values, names, num);
+    gpGuide->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -88,7 +86,7 @@ GPUSB::~GPUSB()
 
 const char *GPUSB::getDefaultName()
 {
-    return (char *)"GPUSB";
+    return (const char *)"GPUSB";
 }
 
 bool GPUSB::Connect()
@@ -98,27 +96,31 @@ bool GPUSB::Connect()
     bool rc = driver->Connect();
 
     if (rc)
-        IDMessage(getDeviceName(), "GPUSB is online.");
+        LOG_INFO("GPUSB is online.");
     else
-        IDMessage(getDeviceName(), "Error: cannot find GPUSB device.");
+        LOG_ERROR("Error: cannot find GPUSB device.");
 
     return rc;
 }
 
 bool GPUSB::Disconnect()
 {
-    IDMessage(getDeviceName(), "GPSUSB is offline.");
+    LOG_INFO("GPSUSB is offline.");
 
     return driver->Disconnect();
 }
 
 bool GPUSB::initProperties()
 {
+    INDI::DefaultDevice::initProperties();
+
     initGuiderProperties(getDeviceName(), MAIN_CONTROL_TAB);
 
     addDebugControl();
 
-    return INDI::DefaultDevice::initProperties();
+    setDefaultPollingPeriod(250);
+
+    return true;
 }
 
 bool GPUSB::updateProperties()
@@ -146,7 +148,7 @@ void GPUSB::ISGetProperties(const char *dev)
 
 bool GPUSB::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    if (strcmp(dev, getDeviceName()) == 0)
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (!strcmp(name, GuideNSNP.name) || !strcmp(name, GuideWENP.name))
         {
@@ -182,7 +184,7 @@ float GPUSB::CalcWEPulseTimeLeft()
 {
     double timesince;
     double timeleft;
-    struct timeval now;
+    struct timeval now { 0, 0 };
     gettimeofday(&now, nullptr);
 
     timesince = (double)(now.tv_sec * 1000.0 + now.tv_usec / 1000) -
@@ -197,7 +199,7 @@ float GPUSB::CalcNSPulseTimeLeft()
 {
     double timesince;
     double timeleft;
-    struct timeval now;
+    struct timeval now { 0, 0 };
     gettimeofday(&now, nullptr);
 
     timesince = (double)(now.tv_sec * 1000.0 + now.tv_usec / 1000) -
@@ -309,7 +311,7 @@ IPState GPUSB::GuideNorth(float ms)
 
     NSDir = GPUSB_NORTH;
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "Starting NORTH guide");
+    LOG_DEBUG("Starting NORTH guide");
 
     if (ms <= POLLMS)
     {
@@ -334,7 +336,7 @@ IPState GPUSB::GuideSouth(float ms)
 
     driver->startPulse(GPUSB_SOUTH);
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "Starting SOUTH guide");
+    LOG_DEBUG("Starting SOUTH guide");
 
     NSDir = GPUSB_SOUTH;
 
@@ -361,7 +363,7 @@ IPState GPUSB::GuideEast(float ms)
 
     driver->startPulse(GPUSB_EAST);
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "Starting EAST guide");
+    LOG_DEBUG("Starting EAST guide");
 
     WEDir = GPUSB_EAST;
 
@@ -388,7 +390,7 @@ IPState GPUSB::GuideWest(float ms)
 
     driver->startPulse(GPUSB_WEST);
 
-    DEBUG(INDI::Logger::DBG_DEBUG, "Starting WEST guide");
+    LOG_DEBUG("Starting WEST guide");
 
     WEDir = GPUSB_WEST;
 

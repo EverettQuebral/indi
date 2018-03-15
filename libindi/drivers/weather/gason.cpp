@@ -23,7 +23,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "gason.h"
 
-#include <stdlib.h>
+#include <cstdlib>
 
 #define JSON_ZONE_SIZE  4096
 #define JSON_STACK_SIZE 32
@@ -201,12 +201,17 @@ int jsonParse(char *s, char **endptr, JsonValue *value, JsonAllocator &allocator
         *endptr = s++;
         switch (**endptr)
         {
+#if __GNUC__ > 6
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#endif
             case '-':
                 if (!isdigit(*s) && *s != '.')
                 {
                     *endptr = s;
                     return JSON_BAD_NUMBER;
                 }
+                /* Falls through. */
             case '0':
             case '1':
             case '2':
@@ -224,6 +229,9 @@ int jsonParse(char *s, char **endptr, JsonValue *value, JsonAllocator &allocator
                     return JSON_BAD_NUMBER;
                 }
                 break;
+#if __GNUC__ > 6
+#pragma GCC diagnostic pop
+#endif
             case '"':
                 o = JsonValue(JSON_STRING, s);
                 for (char *it = s; *s; ++it, ++s)

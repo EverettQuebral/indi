@@ -22,7 +22,7 @@
 
 #include "joystickdriver.h"
 
-#include <string.h>
+#include <cstring>
 
 #define MAX_JOYSTICKS 3
 
@@ -237,6 +237,9 @@ __u32 JoyStickDriver::getVersion()
 __u8 JoyStickDriver::getNumOfJoysticks()
 {
     int n_joysticks = axes / 2;
+
+    if (axes % 2 != 0)
+        n_joysticks++;
 
     if (n_joysticks > MAX_JOYSTICKS)
         n_joysticks = MAX_JOYSTICKS;

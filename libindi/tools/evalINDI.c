@@ -29,19 +29,19 @@
 
 extern int compileExpr(char *expr, char *errmsg);
 extern int evalExpr(double *vp, char *errmsg);
-extern int allOperandsSet(void);
+extern int allOperandsSet();
 extern int getAllOperands(char ***ops);
 extern int getSetOperands(char ***ops);
 extern int getUnsetOperands(char ***ops);
 extern int setOperand(char *name, double valu);
 
-static void usage(void);
-static void compile(char *expr);
-static FILE *openINDIServer(void);
+static void usage();
+static void compileINDI(char *expr);
+static FILE *openINDIServer();
 static void getProps(FILE *fp);
 static void initProps(FILE *fp);
 static int pstatestr(char *state);
-static time_t timestamp(char *ts);
+static time_t timestampINDI(char *ts);
 static int devcmp(char *op1, char *op2);
 static int runEval(FILE *fp);
 static int setOp(XMLEle *root);
@@ -159,9 +159,9 @@ int main(int ac, char *av[])
 
     /* compile expression from av[0] or stdin */
     if (ac == 0)
-        compile(NULL);
+        compileINDI(NULL);
     else if (ac == 1)
-        compile(av[0]);
+        compileINDI(av[0]);
     else
         usage();
 
@@ -244,7 +244,7 @@ static void usage()
 /* compile the given expression else read from stdin.
  * exit(2) if trouble.
  */
-static void compile(char *expr)
+static void compileINDI(char *expr)
 {
     char errmsg[1024];
     char *exp = expr;
@@ -274,7 +274,7 @@ static void compile(char *expr)
 /* open a connection to the given host and port or die.
  * return FILE pointer to socket.
  */
-static FILE *openINDIServer(void)
+static FILE *openINDIServer()
 {
     struct sockaddr_in serv_addr;
     struct hostent *hp;
@@ -439,7 +439,7 @@ static int setOp(XMLEle *root)
     if (t[0])
     {
         sprintf(prop, "%s.%s._TS", d, n);
-        v = (double)timestamp(t);
+        v = (double)timestampINDI(t);
         if (setOperand(prop, v) == 0)
         {
             nset++;
@@ -502,7 +502,7 @@ static int pstatestr(char *state)
 
 /* return UNIX time for the given ISO 8601 time string
  */
-static time_t timestamp(char *ts)
+static time_t timestampINDI(char *ts)
 {
     struct tm tm;
 

@@ -26,12 +26,15 @@
 #include <libusb.h>
 
 /**
- * \class INDI::USBDevice
+ * \class USBDevice
    \brief Class to provide general functionality of a generic USB device.
 
-   Developers need to subclass INDI::USBDevice to implement any driver within INDI that requires direct read/write/control over USB.
+   Developers need to subclass USBDevice to implement any driver within INDI that requires direct read/write/control over USB.
 */
-class INDI::USBDevice
+namespace INDI
+{
+
+class USBDevice
 {
   protected:
     libusb_device *dev;
@@ -57,7 +60,8 @@ class INDI::USBDevice
     int FindEndpoints();
     int Open();
     void Close();
-    USBDevice(void);
+    USBDevice();
     USBDevice(libusb_device *dev);
-    virtual ~USBDevice(void);
+    virtual ~USBDevice();
 };
+}

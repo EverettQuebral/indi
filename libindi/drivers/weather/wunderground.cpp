@@ -25,12 +25,12 @@
 #include "wunderground.h"
 
 #include "gason.h"
+#include "locale_compat.h"
 
 #include <curl/curl.h>
 
-#include <locale.h>
 #include <memory>
-#include <string.h>
+#include <cstring>
 
 // We declare an auto pointer to WunderGround.
 std::unique_ptr<WunderGround> wunderGround(new WunderGround());
@@ -46,19 +46,19 @@ void ISGetProperties(const char *dev)
     wunderGround->ISGetProperties(dev);
 }
 
-void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int num)
+void ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
-    wunderGround->ISNewSwitch(dev, name, states, names, num);
+    wunderGround->ISNewSwitch(dev, name, states, names, n);
 }
 
-void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int num)
+void ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    wunderGround->ISNewText(dev, name, texts, names, num);
+    wunderGround->ISNewText(dev, name, texts, names, n);
 }
 
-void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int num)
+void ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
-    wunderGround->ISNewNumber(dev, name, values, names, num);
+    wunderGround->ISNewNumber(dev, name, values, names, n);
 }
 
 void ISNewBLOB(const char *dev, const char *name, int sizes[], int blobsizes[], char *blobs[], char *formats[],
@@ -94,14 +94,14 @@ WunderGround::~WunderGround()
 
 const char *WunderGround::getDefaultName()
 {
-    return (char *)"WunderGround";
+    return (const char *)"WunderGround";
 }
 
 bool WunderGround::Connect()
 {
     if (wunderAPIKeyT[0].text == nullptr)
     {
-        DEBUG(INDI::Logger::DBG_ERROR, "Weather Underground API Key is not available. Please register your API key at "
+        LOG_ERROR("Weather Underground API Key is not available. Please register your API key at "
                                        "www.wunderground.com and save it under Options.");
         return false;
     }
@@ -149,7 +149,7 @@ void WunderGround::ISGetProperties(const char *dev)
 
 bool WunderGround::ISNewText(const char *dev, const char *name, char *texts[], char *names[], int n)
 {
-    if (!strcmp(dev, getDeviceName()))
+    if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
         if (!strcmp(wunderAPIKeyTP.name, name))
         {
@@ -184,7 +184,7 @@ IPState WunderGround::updateWeather()
     if (wunderLat == -1000 || wunderLong == -1000)
         return IPS_BUSY;
 
-    char *orig = setlocale(LC_NUMERIC, "C");
+    AutoCNumeric locale;
 
     snprintf(requestURL, MAXRBUF, "http://api.wunderground.com/api/%s/conditions/q/%g,%g.json", wunderAPIKeyT[0].text,
              wunderLat, wunderLong);
@@ -209,10 +209,9 @@ IPState WunderGround::updateWeather()
     int status = jsonParse(source, &endptr, &value, allocator);
     if (status != JSON_OK)
     {
-        DEBUGF(INDI::Logger::DBG_ERROR, "%s at %zd", jsonStrError(status), endptr - source);
-        DEBUGF(INDI::Logger::DBG_DEBUG, "%s", requestURL);
-        DEBUGF(INDI::Logger::DBG_DEBUG, "%s", readBuffer.c_str());
-        setlocale(LC_NUMERIC, orig);
+        LOGF_ERROR("%s at %zd", jsonStrError(status), endptr - source);
+        LOGF_DEBUG("%s", requestURL);
+        LOGF_DEBUG("%s", readBuffer.c_str());
         return IPS_ALERT;
     }
 
@@ -239,7 +238,7 @@ IPState WunderGround::updateWeather()
                     else
                         setParameterValue("WEATHER_FORECAST", 2);
 
-                    DEBUGF(INDI::Logger::DBG_SESSION, "Weather condition: %s", value);
+                    LOGF_INFO("Weather condition: %s", value);
                 }
                 else if (!strcmp(observationIterator->key, "temp_c"))
                 {
@@ -279,7 +278,6 @@ IPState WunderGround::updateWeather()
         }
     }
 
-    setlocale(LC_NUMERIC, orig);
     return IPS_OK;
 }
 
